@@ -1,0 +1,394 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Ledger — Solana Wallet Tracker</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#0B0E14;
+    --surface:#12161F;
+    --surface-2:#171C27;
+    --line:#232A38;
+    --ink:#FF6B35;
+    --ink-dim:#B84E24;
+    --paper:#E8E6DE;
+    --muted:#6B7385;
+    --up:#4ADE80;
+    --down:#F43F5E;
+  }
+  *{box-sizing:border-box; margin:0; padding:0;}
+  body{
+    background:var(--bg);
+    color:var(--paper);
+    font-family:'Inter',sans-serif;
+    min-height:100vh;
+    background-image:
+      linear-gradient(var(--line) 1px, transparent 1px);
+    background-size: 100% 44px;
+    background-attachment:fixed;
+  }
+  .wrap{max-width:920px; margin:0 auto; padding:32px 20px 80px;}
+
+  /* Header / signature ticker */
+  header{margin-bottom:28px;}
+  .brand{
+    display:flex; align-items:baseline; justify-content:space-between; gap:12px; flex-wrap:wrap;
+    border-bottom:1px solid var(--line); padding-bottom:16px; margin-bottom:16px;
+  }
+  .brand-mark{
+    font-family:'Space Grotesk',sans-serif; font-weight:700; font-size:22px; letter-spacing:-0.02em;
+    display:flex; align-items:center; gap:10px;
+  }
+  .brand-mark .dot{width:9px; height:9px; border-radius:50%; background:var(--ink); box-shadow:0 0 10px var(--ink);}
+  .brand-sub{font-family:'JetBrains Mono',monospace; font-size:11px; color:var(--muted); letter-spacing:0.04em; text-transform:uppercase;}
+
+  .ticker{
+    font-family:'JetBrains Mono',monospace; font-size:11px; color:var(--muted);
+    white-space:nowrap; overflow:hidden; position:relative; height:20px; border-top:1px solid var(--line); border-bottom:1px solid var(--line);
+    margin-bottom:24px;
+  }
+  .ticker-inner{position:absolute; display:flex; gap:40px; padding-top:4px; animation:scroll 22s linear infinite;}
+  @keyframes scroll{from{transform:translateX(0);} to{transform:translateX(-50%);}}
+  .ticker span{color:var(--ink-dim);}
+
+  /* Search / config */
+  .panel{
+    background:var(--surface); border:1px solid var(--line); border-radius:10px; padding:20px;
+  }
+  .search-row{display:flex; gap:10px; flex-wrap:wrap;}
+  input[type=text], input[type=password]{
+    background:var(--surface-2); border:1px solid var(--line); color:var(--paper);
+    font-family:'JetBrains Mono',monospace; font-size:13px; padding:12px 14px; border-radius:7px;
+    flex:1; min-width:220px; outline:none;
+  }
+  input[type=text]:focus, input[type=password]:focus{border-color:var(--ink);}
+  button{
+    font-family:'Space Grotesk',sans-serif; font-weight:600; font-size:13px;
+    background:var(--ink); color:#0B0E14; border:none; border-radius:7px; padding:12px 20px;
+    cursor:pointer; letter-spacing:0.01em;
+  }
+  button:hover{background:#ff7f4d;}
+  button:disabled{background:var(--muted); cursor:not-allowed;}
+  button.ghost{background:transparent; border:1px solid var(--line); color:var(--paper);}
+  button.ghost:hover{border-color:var(--ink); color:var(--ink);}
+
+  details.cfg{margin-top:14px;}
+  summary{font-family:'JetBrains Mono',monospace; font-size:11px; color:var(--muted); cursor:pointer; letter-spacing:0.03em; text-transform:uppercase;}
+  .cfg-body{margin-top:12px; display:flex; gap:10px; flex-wrap:wrap;}
+  .cfg-note{font-family:'JetBrains Mono',monospace; font-size:10.5px; color:var(--muted); margin-top:10px; line-height:1.6;}
+  .cfg-note a{color:var(--ink);}
+
+  .status{font-family:'JetBrains Mono',monospace; font-size:12px; color:var(--muted); margin-top:12px; min-height:16px;}
+  .status.err{color:var(--down);}
+
+  /* Overview */
+  .overview{display:none; margin-top:24px;}
+  .overview.show{display:block;}
+  .addr-line{
+    font-family:'JetBrains Mono',monospace; font-size:12px; color:var(--muted);
+    display:flex; align-items:center; gap:8px; margin-bottom:18px; flex-wrap:wrap;
+  }
+  .addr-line b{color:var(--paper); font-weight:500;}
+  .stamp{
+    font-family:'JetBrains Mono',monospace; font-size:10px; letter-spacing:0.08em; text-transform:uppercase;
+    border:1px solid var(--ink); color:var(--ink); padding:3px 8px; border-radius:4px;
+  }
+
+  .stat-grid{display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:1px; background:var(--line); border:1px solid var(--line); border-radius:10px; overflow:hidden; margin-bottom:24px;}
+  .stat{background:var(--surface); padding:18px;}
+  .stat .label{font-family:'JetBrains Mono',monospace; font-size:10px; color:var(--muted); text-transform:uppercase; letter-spacing:0.06em; margin-bottom:8px;}
+  .stat .value{font-family:'Space Grotesk',sans-serif; font-weight:700; font-size:22px;}
+  .stat .value.up{color:var(--up);}
+  .stat .value.down{color:var(--down);}
+
+  /* Tabs */
+  .tabs{display:flex; gap:4px; border-bottom:1px solid var(--line); margin-bottom:18px;}
+  .tab{
+    font-family:'Space Grotesk',sans-serif; font-weight:600; font-size:13px; color:var(--muted);
+    background:none; border:none; padding:10px 16px; border-radius:0; cursor:pointer;
+    border-bottom:2px solid transparent;
+  }
+  .tab.active{color:var(--ink); border-bottom-color:var(--ink); background:none;}
+  .tab-panel{display:none;}
+  .tab-panel.active{display:block;}
+
+  /* Ledger rows (tokens) */
+  .ledger-row{
+    display:grid; grid-template-columns:36px 1fr auto auto; gap:12px; align-items:center;
+    padding:12px 8px; border-bottom:1px solid var(--line);
+  }
+  .ledger-row:last-child{border-bottom:none;}
+  .tok-icon{width:32px; height:32px; border-radius:50%; background:var(--surface-2); border:1px solid var(--line); object-fit:cover;}
+  .tok-name{font-family:'Space Grotesk',sans-serif; font-weight:600; font-size:14px;}
+  .tok-mint{font-family:'JetBrains Mono',monospace; font-size:10.5px; color:var(--muted);}
+  .tok-amt{font-family:'JetBrains Mono',monospace; font-size:13px; text-align:right;}
+  .tok-usd{font-family:'JetBrains Mono',monospace; font-size:12px; color:var(--muted); text-align:right; min-width:80px;}
+
+  /* Transactions */
+  .tx-row{
+    display:flex; justify-content:space-between; align-items:center; gap:12px;
+    padding:13px 8px; border-bottom:1px solid var(--line);
+  }
+  .tx-row:last-child{border-bottom:none;}
+  .tx-desc{font-size:13px; line-height:1.4;}
+  .tx-type{
+    font-family:'JetBrains Mono',monospace; font-size:9.5px; text-transform:uppercase; letter-spacing:0.06em;
+    color:var(--ink); border:1px solid var(--ink-dim); border-radius:4px; padding:2px 6px; margin-right:8px;
+  }
+  .tx-time{font-family:'JetBrains Mono',monospace; font-size:11px; color:var(--muted); white-space:nowrap;}
+  .tx-link{font-family:'JetBrains Mono',monospace; font-size:11px; color:var(--muted); text-decoration:none; border-bottom:1px dotted var(--muted);}
+  .tx-link:hover{color:var(--ink); border-color:var(--ink);}
+
+  /* NFTs */
+  .nft-grid{display:grid; grid-template-columns:repeat(auto-fill,minmax(130px,1fr)); gap:12px;}
+  .nft-card{background:var(--surface-2); border:1px solid var(--line); border-radius:8px; overflow:hidden;}
+  .nft-card img{width:100%; aspect-ratio:1; object-fit:cover; display:block; background:#0B0E14;}
+  .nft-card .nft-name{font-family:'JetBrains Mono',monospace; font-size:10.5px; padding:8px; color:var(--paper); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
+
+  .empty{font-family:'JetBrains Mono',monospace; font-size:12px; color:var(--muted); padding:30px 8px; text-align:center;}
+  .skel{background:linear-gradient(90deg,var(--surface-2) 25%,var(--line) 50%,var(--surface-2) 75%); background-size:200% 100%; animation:shine 1.4s infinite; border-radius:6px; height:14px;}
+  @keyframes shine{from{background-position:200% 0;} to{background-position:-200% 0;}}
+
+  footer{margin-top:40px; font-family:'JetBrains Mono',monospace; font-size:10.5px; color:var(--muted); text-align:center;}
+  @media(max-width:520px){
+    .ledger-row{grid-template-columns:28px 1fr auto;}
+    .tok-usd{display:none;}
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="brand">
+      <div class="brand-mark"><span class="dot"></span>LEDGER</div>
+      <div class="brand-sub">Solana wallet manifest</div>
+    </div>
+    <div class="ticker"><div class="ticker-inner" id="tickerInner"></div></div>
+  </header>
+
+  <div class="panel">
+    <div class="search-row">
+      <input type="text" id="walletInput" placeholder="Paste a Solana wallet address…">
+      <button id="lookupBtn">Look up</button>
+    </div>
+    <div class="cfg-note" style="margin-top:12px;">
+      Data is fetched through a Netlify Function — the Helius API key stays server-side and never reaches this page.
+    </div>
+    <div class="status" id="statusLine"></div>
+  </div>
+
+  <div class="overview" id="overview">
+    <div class="addr-line">
+      <span class="stamp" id="walletStamp">WALLET</span>
+      <b id="addrDisplay"></b>
+      <a class="tx-link" id="solscanLink" href="#" target="_blank" rel="noopener">view on solscan ↗</a>
+    </div>
+
+    <div class="stat-grid">
+      <div class="stat"><div class="label">SOL Balance</div><div class="value" id="solBal">—</div></div>
+      <div class="stat"><div class="label">Portfolio Value</div><div class="value" id="totalUsd">—</div></div>
+      <div class="stat"><div class="label">Tokens Held</div><div class="value" id="tokenCount">—</div></div>
+      <div class="stat"><div class="label">NFTs Held</div><div class="value" id="nftCount">—</div></div>
+    </div>
+
+    <div class="tabs">
+      <button class="tab active" data-tab="tokens">Tokens</button>
+      <button class="tab" data-tab="txns">Transactions</button>
+      <button class="tab" data-tab="nfts">NFTs</button>
+    </div>
+
+    <div class="panel tab-panel active" id="panel-tokens"></div>
+    <div class="panel tab-panel" id="panel-txns"></div>
+    <div class="panel tab-panel" id="panel-nfts"></div>
+  </div>
+
+  <footer>Data via Helius + Jupiter. Not financial advice. This tool reads public on-chain data only.</footer>
+</div>
+
+<script>
+const tickerPhrases = ["ON-CHAIN MANIFEST", "SPL TOKEN BALANCES", "REALTIME TRANSACTION LOG", "NFT HOLDINGS", "SOLANA MAINNET", "NO WALLET DATA STORED"];
+document.getElementById('tickerInner').innerHTML = (tickerPhrases.concat(tickerPhrases)).map(t=>`<span>${t}</span>`).join('<span>·</span>');
+
+const PROXY = "/.netlify/functions/helius-proxy";
+const $ = id => document.getElementById(id);
+const statusLine = $('statusLine');
+
+document.querySelectorAll('.tab').forEach(tab=>{
+  tab.addEventListener('click', ()=>{
+    document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
+    document.querySelectorAll('.tab-panel').forEach(p=>p.classList.remove('active'));
+    tab.classList.add('active');
+    $('panel-'+tab.dataset.tab).classList.add('active');
+  });
+});
+
+function short(addr){ return addr.slice(0,4)+'…'+addr.slice(-4); }
+function fmtUsd(n){
+  if(n===null||n===undefined||isNaN(n)) return '—';
+  if(n<0.01 && n>0) return '<$0.01';
+  return '$'+n.toLocaleString('en-US',{maximumFractionDigits: n<1000?2:0});
+}
+function fmtNum(n, decimals=4){
+  if(n===null||n===undefined||isNaN(n)) return '—';
+  return n.toLocaleString('en-US',{maximumFractionDigits:decimals});
+}
+function timeAgo(ts){
+  const s = Math.floor(Date.now()/1000) - ts;
+  if(s<60) return s+'s ago';
+  if(s<3600) return Math.floor(s/60)+'m ago';
+  if(s<86400) return Math.floor(s/3600)+'h ago';
+  return Math.floor(s/86400)+'d ago';
+}
+function skeletonRows(n, panelId){
+  const el = $(panelId);
+  el.innerHTML = Array(n).fill(0).map(()=>`<div style="padding:12px 8px;"><div class="skel" style="width:70%;"></div></div>`).join('');
+}
+
+async function lookupWallet(){
+  const address = $('walletInput').value.trim();
+  if(!address){ statusLine.textContent = "Paste a wallet address first."; statusLine.className="status err"; return; }
+
+  $('lookupBtn').disabled = true;
+  statusLine.textContent = "Fetching wallet data…";
+  statusLine.className = "status";
+  $('overview').classList.add('show');
+  $('addrDisplay').textContent = address;
+  $('walletStamp').textContent = short(address);
+  $('solscanLink').href = `https://solscan.io/account/${address}`;
+  skeletonRows(4,'panel-tokens'); skeletonRows(4,'panel-txns'); skeletonRows(4,'panel-nfts');
+  $('solBal').textContent='…'; $('totalUsd').textContent='…'; $('tokenCount').textContent='…'; $('nftCount').textContent='…';
+
+  try{
+    await Promise.all([loadBalancesAndSol(address), loadTransactions(address), loadNfts(address)]);
+    statusLine.textContent = "Updated " + new Date().toLocaleTimeString();
+    statusLine.className = "status";
+  }catch(err){
+    console.error(err);
+    statusLine.textContent = "Error: " + err.message;
+    statusLine.className = "status err";
+  }finally{
+    $('lookupBtn').disabled = false;
+  }
+}
+
+async function loadBalancesAndSol(address){
+  const url = `${PROXY}?type=balances&address=${address}`;
+  const res = await fetch(url);
+  if(!res.ok) throw new Error("Balances request failed ("+res.status+")");
+  const data = await res.json();
+
+  const solAmount = (data.nativeBalance || 0) / 1e9;
+  $('solBal').textContent = fmtNum(solAmount) + ' SOL';
+
+  const tokens = (data.tokens || []).filter(t=>t.amount>0);
+  $('tokenCount').textContent = tokens.length;
+
+  // price via Jupiter lite API v3, batched
+  let priceMap = {};
+  const mints = tokens.map(t=>t.mint);
+  const SOL_MINT = 'So11111111111111111111111111111111111111112';
+  const allMints = [SOL_MINT, ...mints];
+  try{
+    for(let i=0;i<allMints.length;i+=50){
+      const batch = allMints.slice(i,i+50);
+      const pRes = await fetch(`https://lite-api.jup.ag/price/v3?ids=${batch.join(',')}`);
+      if(pRes.ok){
+        const pData = await pRes.json();
+        Object.assign(priceMap, pData);
+      }
+    }
+  }catch(e){ console.warn("Price fetch failed", e); }
+
+  const solPrice = priceMap[SOL_MINT]?.usdPrice || 0;
+  const solUsd = solAmount * solPrice;
+
+  let totalUsd = solUsd;
+  const rows = tokens.map(t=>{
+    const decimals = t.decimals ?? 0;
+    const amount = t.amount / Math.pow(10, decimals);
+    const price = priceMap[t.mint]?.usdPrice || 0;
+    const usd = amount * price;
+    totalUsd += usd;
+    return {mint:t.mint, amount, usd, symbol: t.mint.slice(0,4)+'…'};
+  }).sort((a,b)=>b.usd - a.usd);
+
+  $('totalUsd').textContent = fmtUsd(totalUsd);
+
+  const tokenPanel = $('panel-tokens');
+  if(rows.length===0 && solAmount===0){
+    tokenPanel.innerHTML = `<div class="empty">No tokens or SOL found in this wallet.</div>`;
+  } else {
+    let html = `<div class="ledger-row">
+      <img class="tok-icon" src="https://cryptologos.cc/logos/solana-sol-logo.png" onerror="this.style.display='none'">
+      <div><div class="tok-name">Solana</div><div class="tok-mint">SOL</div></div>
+      <div class="tok-amt">${fmtNum(solAmount)}</div>
+      <div class="tok-usd">${fmtUsd(solUsd)}</div>
+    </div>`;
+    html += rows.map(r=>`
+      <div class="ledger-row">
+        <div class="tok-icon"></div>
+        <div><div class="tok-name">${r.symbol}</div><div class="tok-mint">${r.mint}</div></div>
+        <div class="tok-amt">${fmtNum(r.amount, r.amount<1?6:2)}</div>
+        <div class="tok-usd">${r.usd>0 ? fmtUsd(r.usd) : '—'}</div>
+      </div>`).join('');
+    tokenPanel.innerHTML = html;
+  }
+}
+
+async function loadTransactions(address){
+  const url = `${PROXY}?type=transactions&address=${address}`;
+  const res = await fetch(url);
+  if(!res.ok) throw new Error("Transactions request failed ("+res.status+")");
+  const data = await res.json();
+
+  const panel = $('panel-txns');
+  if(!data.length){
+    panel.innerHTML = `<div class="empty">No recent transactions found.</div>`;
+    return;
+  }
+  panel.innerHTML = data.map(tx=>{
+    const type = (tx.type || 'UNKNOWN').replace(/_/g,' ');
+    const desc = tx.description || `${type} transaction`;
+    const link = `https://solscan.io/tx/${tx.signature}`;
+    return `<div class="tx-row">
+      <div class="tx-desc"><span class="tx-type">${type}</span>${desc}</div>
+      <div style="display:flex; align-items:center; gap:10px;">
+        <span class="tx-time">${timeAgo(tx.timestamp)}</span>
+        <a class="tx-link" href="${link}" target="_blank" rel="noopener">↗</a>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+async function loadNfts(address){
+  const url = `${PROXY}?type=nfts&address=${address}`;
+  const res = await fetch(url);
+  if(!res.ok) throw new Error("NFT request failed ("+res.status+")");
+  const data = await res.json();
+  const items = (data.result?.items || []).filter(i=>i.interface==='V1_NFT' || i.interface==='ProgrammableNFT');
+
+  $('nftCount').textContent = data.result?.total ?? items.length;
+
+  const panel = $('panel-nfts');
+  if(!items.length){
+    panel.innerHTML = `<div class="empty">No NFTs found in this wallet.</div>`;
+    return;
+  }
+  panel.innerHTML = `<div class="nft-grid">` + items.map(nft=>{
+    const img = nft.content?.links?.image || nft.content?.files?.[0]?.uri || '';
+    const name = nft.content?.metadata?.name || 'Untitled';
+    return `<div class="nft-card">
+      <img src="${img}" loading="lazy" onerror="this.style.opacity=0.2">
+      <div class="nft-name">${name}</div>
+    </div>`;
+  }).join('') + `</div>`;
+}
+
+$('lookupBtn').addEventListener('click', lookupWallet);
+$('walletInput').addEventListener('keydown', e=>{ if(e.key==='Enter') lookupWallet(); });
+</script>
+</body>
+</html>
