@@ -280,59 +280,35 @@ async function loadBalancesAndSol(address){
   if(!res.ok) throw new Error("Balances request failed ("+res.status+")");
   const data = await res.json();
 
-  const solAmount = (data.nativeBalance || 0) / 1e9;
+  const balances = data.balances || [];
+  const sol = balances.find(b => b.mint === 'So11111111111111111111111111111111111111112');
+  const tokens = balances.filter(b => b.mint !== 'So11111111111111111111111111111111111111112');
+
+  const solAmount = sol ? sol.balance : 0;
+  const solUsd = sol ? (sol.usdValue || 0) : 0;
   $('solBal').textContent = fmtNum(solAmount) + ' SOL';
-
-  const tokens = (data.tokens || []).filter(t=>t.amount>0);
   $('tokenCount').textContent = tokens.length;
-
-  // price via Jupiter lite API v3, batched
-  let priceMap = {};
-  const mints = tokens.map(t=>t.mint);
-  const SOL_MINT = 'So11111111111111111111111111111111111111112';
-  const allMints = [SOL_MINT, ...mints];
-  try{
-    for(let i=0;i<allMints.length;i+=50){
-      const batch = allMints.slice(i,i+50);
-      const pRes = await fetch(`https://lite-api.jup.ag/price/v3?ids=${batch.join(',')}`);
-      if(pRes.ok){
-        const pData = await pRes.json();
-        Object.assign(priceMap, pData);
-      }
-    }
-  }catch(e){ console.warn("Price fetch failed", e); }
-
-  const solPrice = priceMap[SOL_MINT]?.usdPrice || 0;
-  const solUsd = solAmount * solPrice;
-
-  let totalUsd = solUsd;
-  const rows = tokens.map(t=>{
-    const decimals = t.decimals ?? 0;
-    const amount = t.amount / Math.pow(10, decimals);
-    const price = priceMap[t.mint]?.usdPrice || 0;
-    const usd = amount * price;
-    totalUsd += usd;
-    return {mint:t.mint, amount, usd, symbol: t.mint.slice(0,4)+'…'};
-  }).sort((a,b)=>b.usd - a.usd);
-
-  $('totalUsd').textContent = fmtUsd(totalUsd);
+  $('totalUsd').textContent = fmtUsd(data.totalUsdValue);
 
   const tokenPanel = $('panel-tokens');
-  if(rows.length===0 && solAmount===0){
+  if(!sol && tokens.length===0){
     tokenPanel.innerHTML = `<div class="empty">No tokens or SOL found in this wallet.</div>`;
   } else {
-    let html = `<div class="ledger-row">
-      <img class="tok-icon" src="https://cryptologos.cc/logos/solana-sol-logo.png" onerror="this.style.display='none'">
-      <div><div class="tok-name">Solana</div><div class="tok-mint">SOL</div></div>
-      <div class="tok-amt">${fmtNum(solAmount)}</div>
-      <div class="tok-usd">${fmtUsd(solUsd)}</div>
-    </div>`;
-    html += rows.map(r=>`
+    let html = '';
+    if(sol){
+      html += `<div class="ledger-row">
+        <img class="tok-icon" src="https://cryptologos.cc/logos/solana-sol-logo.png" onerror="this.style.display='none'">
+        <div><div class="tok-name">Solana</div><div class="tok-mint">SOL</div></div>
+        <div class="tok-amt">${fmtNum(solAmount)}</div>
+        <div class="tok-usd">${fmtUsd(solUsd)}</div>
+      </div>`;
+    }
+    html += tokens.map(t=>`
       <div class="ledger-row">
-        <div class="tok-icon"></div>
-        <div><div class="tok-name">${r.symbol}</div><div class="tok-mint">${r.mint}</div></div>
-        <div class="tok-amt">${fmtNum(r.amount, r.amount<1?6:2)}</div>
-        <div class="tok-usd">${r.usd>0 ? fmtUsd(r.usd) : '—'}</div>
+        <img class="tok-icon" src="${t.logoUri||''}" onerror="this.style.display='none'">
+        <div><div class="tok-name">${t.symbol || t.name || short(t.mint)}</div><div class="tok-mint">${t.mint}</div></div>
+        <div class="tok-amt">${fmtNum(t.balance, t.balance<1?6:2)}</div>
+        <div class="tok-usd">${t.usdValue!=null ? fmtUsd(t.usdValue) : '—'}</div>
       </div>`).join('');
     tokenPanel.innerHTML = html;
   }
@@ -343,20 +319,37 @@ async function loadTransactions(address){
   const res = await fetch(url);
   if(!res.ok) throw new Error("Transactions request failed ("+res.status+")");
   const data = await res.json();
+  const txs = data.data || [];
 
   const panel = $('panel-txns');
-  if(!data.length){
+  if(!txs.length){
     panel.innerHTML = `<div class="empty">No recent transactions found.</div>`;
     return;
   }
-  panel.innerHTML = data.map(tx=>{
-    const type = (tx.type || 'UNKNOWN').replace(/_/g,' ');
-    const desc = tx.description || `${type} transaction`;
+  panel.innerHTML = txs.map(tx=>{
     const link = `https://solscan.io/tx/${tx.signature}`;
+    if(tx.error){
+      return `<div class="tx-row">
+        <div class="tx-desc"><span class="tx-type" style="color:var(--down); border-color:var(--down);">FAILED</span>Transaction failed</div>
+        <div style="display:flex; align-items:center; gap:10px;">
+          <span class="tx-time">${tx.timestamp ? timeAgo(tx.timestamp) : '—'}</span>
+          <a class="tx-link" href="${link}" target="_blank" rel="noopener">↗</a>
+        </div>
+      </div>`;
+    }
+    const changes = (tx.balanceChanges || []).filter(c => Math.abs(c.amount) > 0);
+    const label = changes.length > 1 ? 'SWAP' : (changes.length === 1 ? (changes[0].amount > 0 ? 'RECEIVE' : 'SEND') : 'TX');
+    const desc = changes.length
+      ? changes.map(c=>{
+          const sym = c.mint === 'So11111111111111111111111111111111111111112' ? 'SOL' : short(c.mint);
+          const amt = fmtNum(Math.abs(c.amount), Math.abs(c.amount)<1?6:2);
+          return `${c.amount>0?'+':'-'}${amt} ${sym}`;
+        }).join('  ·  ')
+      : 'No balance change';
     return `<div class="tx-row">
-      <div class="tx-desc"><span class="tx-type">${type}</span>${desc}</div>
+      <div class="tx-desc"><span class="tx-type">${label}</span>${desc}</div>
       <div style="display:flex; align-items:center; gap:10px;">
-        <span class="tx-time">${timeAgo(tx.timestamp)}</span>
+        <span class="tx-time">${tx.timestamp ? timeAgo(tx.timestamp) : '—'}</span>
         <a class="tx-link" href="${link}" target="_blank" rel="noopener">↗</a>
       </div>
     </div>`;
