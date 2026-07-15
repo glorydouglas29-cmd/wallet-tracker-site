@@ -37,10 +37,10 @@ exports.handler = async (event) => {
     let url, options;
 
     if (type === 'balances') {
-      url = `https://api.helius.xyz/v0/addresses/${address}/balances?api-key=${HELIUS_API_KEY}`;
+      url = `https://api.helius.xyz/v1/wallet/${address}/balances?api-key=${HELIUS_API_KEY}`;
       options = { method: 'GET' };
     } else if (type === 'transactions') {
-      url = `https://api.helius.xyz/v0/addresses/${address}/transactions?api-key=${HELIUS_API_KEY}&limit=25`;
+      url = `https://api.helius.xyz/v1/wallet/${address}/history?api-key=${HELIUS_API_KEY}&limit=25`;
       options = { method: 'GET' };
     } else if (type === 'nfts') {
       url = `https://mainnet.helius-rpc.com/?api-key=${HELIUS_API_KEY}`;
