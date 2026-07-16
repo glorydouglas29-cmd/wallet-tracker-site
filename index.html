@@ -43,7 +43,15 @@
     display:flex; align-items:center; gap:10px;
   }
   .brand-mark .dot{width:9px; height:9px; border-radius:50%; background:var(--ink); box-shadow:0 0 10px var(--ink);}
+  .brand-zeke{color:var(--muted); font-weight:500; margin-right:2px;}
   .brand-sub{font-family:'JetBrains Mono',monospace; font-size:11px; color:var(--muted); letter-spacing:0.04em; text-transform:uppercase;}
+
+  /* Paper grain texture — subtle atmosphere over the whole page */
+  body::before{
+    content:''; position:fixed; inset:0; pointer-events:none; z-index:1; opacity:0.035;
+    background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 200 200'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  }
+  .wrap{position:relative; z-index:2;}
 
   .ticker{
     font-family:'JetBrains Mono',monospace; font-size:11px; color:var(--muted);
@@ -68,9 +76,10 @@
   button{
     font-family:'Space Grotesk',sans-serif; font-weight:600; font-size:13px;
     background:var(--ink); color:#0B0E14; border:none; border-radius:7px; padding:12px 20px;
-    cursor:pointer; letter-spacing:0.01em;
+    cursor:pointer; letter-spacing:0.01em; transition:transform 0.12s ease, box-shadow 0.12s ease;
   }
-  button:hover{background:#ff7f4d;}
+  button:hover{background:#ff7f4d; box-shadow:0 4px 16px rgba(255,107,53,0.25); transform:translateY(-1px);}
+  button:active{transform:translateY(0);}
   button:disabled{background:var(--muted); cursor:not-allowed;}
   button.ghost{background:transparent; border:1px solid var(--line); color:var(--paper);}
   button.ghost:hover{border-color:var(--ink); color:var(--ink);}
@@ -98,7 +107,10 @@
   }
 
   .stat-grid{display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:1px; background:var(--line); border:1px solid var(--line); border-radius:10px; overflow:hidden; margin-bottom:24px;}
-  .stat{background:var(--surface); padding:18px;}
+  .stat{background:var(--surface); padding:18px; position:relative; transition:background 0.15s ease;}
+  .stat::before{content:''; position:absolute; top:0; left:0; right:0; height:2px; background:var(--ink); opacity:0; transition:opacity 0.15s ease;}
+  .stat:hover{background:var(--surface-2);}
+  .stat:hover::before{opacity:0.6;}
   .stat .label{font-family:'JetBrains Mono',monospace; font-size:10px; color:var(--muted); text-transform:uppercase; letter-spacing:0.06em; margin-bottom:8px;}
   .stat .value{font-family:'Space Grotesk',sans-serif; font-weight:700; font-size:22px;}
   .stat .value.up{color:var(--up);}
@@ -118,8 +130,9 @@
   /* Ledger rows (tokens) */
   .ledger-row{
     display:grid; grid-template-columns:36px 1fr auto auto; gap:12px; align-items:center;
-    padding:12px 8px; border-bottom:1px solid var(--line);
+    padding:12px 8px; border-bottom:1px solid var(--line); transition:background 0.15s ease;
   }
+  .ledger-row:hover{background:var(--surface-2);}
   .ledger-row:last-child{border-bottom:none;}
   .tok-icon{width:32px; height:32px; border-radius:50%; background:var(--surface-2); border:1px solid var(--line); object-fit:cover;}
   .tok-name{font-family:'Space Grotesk',sans-serif; font-weight:600; font-size:14px;}
@@ -130,8 +143,9 @@
   /* Transactions */
   .tx-row{
     display:flex; justify-content:space-between; align-items:center; gap:12px;
-    padding:13px 8px; border-bottom:1px solid var(--line);
+    padding:13px 8px; border-bottom:1px solid var(--line); transition:background 0.15s ease;
   }
+  .tx-row:hover{background:var(--surface-2);}
   .tx-row:last-child{border-bottom:none;}
   .tx-desc{font-size:13px; line-height:1.4;}
   .tx-type{
@@ -144,7 +158,8 @@
 
   /* NFTs */
   .nft-grid{display:grid; grid-template-columns:repeat(auto-fill,minmax(130px,1fr)); gap:12px;}
-  .nft-card{background:var(--surface-2); border:1px solid var(--line); border-radius:8px; overflow:hidden;}
+  .nft-card{background:var(--surface-2); border:1px solid var(--line); border-radius:8px; overflow:hidden; transition:transform 0.15s ease, border-color 0.15s ease;}
+  .nft-card:hover{transform:translateY(-3px); border-color:var(--ink-dim);}
   .nft-card img{width:100%; aspect-ratio:1; object-fit:cover; display:block; background:#0B0E14;}
   .nft-card .nft-name{font-family:'JetBrains Mono',monospace; font-size:10.5px; padding:8px; color:var(--paper); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
 
@@ -163,7 +178,7 @@
 <div class="wrap">
   <header>
     <div class="brand">
-      <div class="brand-mark"><span class="dot"></span>LEDGER</div>
+      <div class="brand-mark"><span class="dot"></span><span class="brand-zeke">ZEKE</span> LEDGER</div>
       <div class="brand-sub">Solana wallet manifest</div>
     </div>
     <div class="ticker"><div class="ticker-inner" id="tickerInner"></div></div>
