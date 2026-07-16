@@ -22,7 +22,7 @@ exports.handler = async (event) => {
     };
   }
 
-  const { type, address } = event.queryStringParameters || {};
+  const { type, address, ...extra } = event.queryStringParameters || {};
 
   if (!address) {
     return { statusCode: 400, headers, body: JSON.stringify({ error: 'Missing address parameter.' }) };
@@ -41,6 +41,13 @@ exports.handler = async (event) => {
       options = { method: 'GET' };
     } else if (type === 'transactions') {
       url = `https://api.helius.xyz/v1/wallet/${address}/history?api-key=${HELIUS_API_KEY}&limit=25`;
+      options = { method: 'GET' };
+    } else if (type === 'balance-at') {
+      // Diagnostic passthrough: forwards any extra query params (mint, timestamp,
+      // datetime, slot, etc.) straight to Helius so we can confirm the real param
+      // names against the live API before committing to a shape in the frontend.
+      const forwarded = new URLSearchParams(extra).toString();
+      url = `https://api.helius.xyz/v1/wallet/${address}/balance-at?api-key=${HELIUS_API_KEY}${forwarded ? '&' + forwarded : ''}`;
       options = { method: 'GET' };
     } else if (type === 'nfts') {
       url = `https://mainnet.helius-rpc.com/?api-key=${HELIUS_API_KEY}`;
