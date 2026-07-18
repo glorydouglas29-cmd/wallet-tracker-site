@@ -363,8 +363,9 @@ async function loadBalancesAndSol(address){
   const data = await res.json();
 
   const balances = data.balances || [];
-  const sol = balances.find(b => b.mint === 'So11111111111111111111111111111111111111112');
-  const tokens = balances.filter(b => b.mint !== 'So11111111111111111111111111111111111111112');
+  const isSolEntry = b => (b.mint||'').trim() === SOL_MINT || (b.symbol||'').trim().toUpperCase() === 'SOL';
+  const sol = balances.find(isSolEntry);
+  const tokens = balances.filter(b => !isSolEntry(b));
 
   const solAmount = sol ? sol.balance : 0;
   const solUsd = sol ? (sol.usdValue || 0) : 0;
@@ -424,7 +425,7 @@ async function loadTransactions(address){
     const label = changes.length > 1 ? 'SWAP' : (changes.length === 1 ? (changes[0].amount > 0 ? 'RECEIVE' : 'SEND') : 'TX');
     const desc = changes.length
       ? changes.map(c=>{
-          const sym = c.mint === 'So11111111111111111111111111111111111111112' ? 'SOL' : short(c.mint);
+          const sym = (c.mint||'').trim() === SOL_MINT ? 'SOL' : short(c.mint);
           const amt = fmtNum(Math.abs(c.amount), Math.abs(c.amount)<1?6:2);
           return `${c.amount>0?'+':'-'}${amt} ${sym}`;
         }).join('  ·  ')
@@ -484,7 +485,7 @@ function renderTrendChart(currentSolBalance, txs){
   for(const tx of txs){
     if(tx.error) continue;
     const solChange = (tx.balanceChanges||[])
-      .filter(c=>c.mint===SOL_MINT)
+      .filter(c=>(c.mint||'').trim()===SOL_MINT)
       .reduce((sum,c)=>sum+c.amount, 0);
     points.push({ t: tx.timestamp || points[points.length-1].t, bal: running });
     running -= solChange;
