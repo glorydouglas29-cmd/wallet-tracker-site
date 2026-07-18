@@ -188,6 +188,26 @@
   .nft-card .nft-name{font-family:'JetBrains Mono',monospace; font-size:10.5px; padding:8px; color:var(--paper); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
 
   .empty{font-family:'JetBrains Mono',monospace; font-size:12px; color:var(--muted); padding:30px 8px; text-align:center;}
+
+  .load-more-row{text-align:center; padding:14px 0 4px;}
+  .load-more-row button{width:100%; max-width:220px;}
+
+  .ledger-row.clickable{cursor:pointer;}
+  .ledger-row .caret{color:var(--muted); font-size:10px; margin-left:4px; transition:transform 0.15s ease;}
+  .ledger-row.expanded .caret{transform:rotate(90deg);}
+  .tok-detail{
+    display:none; padding:4px 8px 14px 48px; border-bottom:1px solid var(--line);
+  }
+  .tok-detail.show{display:block;}
+  .tok-detail .detail-tx{
+    display:flex; justify-content:space-between; gap:10px; font-family:'JetBrains Mono',monospace; font-size:11.5px;
+    color:var(--muted); padding:6px 0; border-bottom:1px dashed var(--line);
+  }
+  .tok-detail .detail-tx:last-child{border-bottom:none;}
+  .tok-detail .detail-tx .amt{color:var(--paper);}
+  .tok-detail .detail-tx .amt.up{color:var(--up);}
+  .tok-detail .detail-tx .amt.down{color:var(--down);}
+  .tok-detail .detail-empty{font-family:'JetBrains Mono',monospace; font-size:11px; color:var(--muted); padding:6px 0;}
   .skel{background:linear-gradient(90deg,var(--surface-2) 25%,var(--line) 50%,var(--surface-2) 75%); background-size:200% 100%; animation:shine 1.4s infinite; border-radius:6px; height:14px;}
   @keyframes shine{from{background-position:200% 0;} to{background-position:-200% 0;}}
 
@@ -249,8 +269,16 @@
       <button class="tab" data-tab="nfts">NFTs</button>
     </div>
 
-    <div class="panel tab-panel active" id="panel-tokens"></div>
-    <div class="panel tab-panel" id="panel-txns"></div>
+    <div class="panel tab-panel active" id="panel-tokens">
+      <div id="tokensRows"></div>
+      <div class="load-more-row" id="tokensLoadMoreRow" style="display:none;"><button class="ghost" id="loadMoreTokensBtn">Load more tokens</button></div>
+    </div>
+
+    <div class="panel tab-panel" id="panel-txns">
+      <div id="txnsRows"></div>
+      <div class="load-more-row" id="txnsLoadMoreRow" style="display:none;"><button class="ghost" id="loadMoreTxnsBtn">Load more transactions</button></div>
+    </div>
+
     <div class="panel tab-panel" id="panel-nfts"></div>
   </div>
 
@@ -266,6 +294,10 @@ const $ = id => document.getElementById(id);
 const statusLine = $('statusLine');
 const SOL_MINT = 'So11111111111111111111111111111111111111112';
 let recentLookups = [];
+let currentAddress = '';
+let tokenPage = 1, tokenHasMore = false;
+let txCursor = null, txHasMore = false;
+let allTxs = []; // accumulated across loaded transaction pages, used for trend chart + token click detail
 
 function renderRecentLookups(){
   const row = $('recentRow');
@@ -331,6 +363,12 @@ async function lookupWallet(){
   const address = $('walletInput').value.trim();
   if(!address){ statusLine.textContent = "Paste a wallet address first."; statusLine.className="status err"; return; }
 
+  currentAddress = address;
+  tokenPage = 1; tokenHasMore = false;
+  txCursor = null; txHasMore = false; allTxs = [];
+  $('tokensLoadMoreRow').style.display = 'none';
+  $('txnsLoadMoreRow').style.display = 'none';
+
   $('lookupBtn').disabled = true;
   statusLine.textContent = "Fetching wallet data…";
   statusLine.className = "status";
@@ -338,12 +376,12 @@ async function lookupWallet(){
   $('addrDisplay').textContent = address;
   $('walletStamp').textContent = short(address);
   $('solscanLink').href = `https://solscan.io/account/${address}`;
-  skeletonRows(4,'panel-tokens'); skeletonRows(4,'panel-txns'); skeletonRows(4,'panel-nfts');
+  skeletonRows(4,'tokensRows'); skeletonRows(4,'txnsRows'); skeletonRows(4,'panel-nfts');
   $('solBal').textContent='…'; $('totalUsd').textContent='…'; $('tokenCount').textContent='…'; $('nftCount').textContent='…';
 
   try{
-    const [solAmount, txs] = await Promise.all([loadBalancesAndSol(address), loadTransactions(address), loadNfts(address)]);
-    renderTrendChart(solAmount, txs);
+    const [solAmount] = await Promise.all([loadBalancesAndSol(address), loadTransactions(address), loadNfts(address)]);
+    renderTrendChart(solAmount, allTxs);
     addRecentLookup(address);
     statusLine.textContent = "Updated " + new Date().toLocaleTimeString();
     statusLine.className = "status";
@@ -356,15 +394,17 @@ async function lookupWallet(){
   }
 }
 
-async function loadBalancesAndSol(address){
-  const url = `${PROXY}?type=balances&address=${address}`;
+let totalUsdAccum = 0;
+
+async function loadBalancesAndSol(address, page=1){
+  const url = `${PROXY}?type=balances&address=${address}&page=${page}`;
   const res = await fetch(url);
   if(!res.ok) throw new Error("Balances request failed ("+res.status+")");
   const data = await res.json();
 
   const balances = data.balances || [];
   const isSolEntry = b => (b.mint||'').trim() === SOL_MINT || (b.symbol||'').trim().toUpperCase() === 'SOL';
-  const sol = balances.find(isSolEntry);
+  const sol = page===1 ? balances.find(isSolEntry) : null;
   const tokens = balances.filter(b => !isSolEntry(b));
 
   // Helius doesn't have pricing for every token (thin-liquidity memecoins
@@ -394,77 +434,167 @@ async function loadBalancesAndSol(address){
 
   const solAmount = sol ? sol.balance : 0;
   const solUsd = sol ? (sol.usdValue || 0) : 0;
-  $('solBal').textContent = fmtNum(solAmount) + ' SOL';
-  $('tokenCount').textContent = tokens.length;
-  $('totalUsd').textContent = fmtUsd((data.totalUsdValue || 0) + jupiterTotal);
 
-  const tokenPanel = $('panel-tokens');
-  if(!sol && tokens.length===0){
-    tokenPanel.innerHTML = `<div class="empty">No tokens or SOL found in this wallet.</div>`;
+  if(page===1){
+    totalUsdAccum = (data.totalUsdValue || 0) + jupiterTotal;
+    $('solBal').textContent = fmtNum(solAmount) + ' SOL';
+    $('tokenCount').textContent = tokens.length;
   } else {
-    let html = '';
-    if(sol){
-      html += `<div class="ledger-row">
-        <img class="tok-icon" src="https://cryptologos.cc/logos/solana-sol-logo.png" onerror="this.style.display='none'">
-        <div><div class="tok-name">Solana</div><div class="tok-mint">SOL</div></div>
-        <div class="tok-amt">${fmtNum(solAmount)}</div>
-        <div class="tok-usd">${fmtUsd(solUsd)}</div>
-      </div>`;
-    }
-    html += tokens.map(t=>`
-      <div class="ledger-row">
-        <img class="tok-icon" src="${t.logoUri||''}" onerror="this.style.display='none'">
-        <div><div class="tok-name">${t.symbol || t.name || short(t.mint)}</div><div class="tok-mint">${t.mint}</div></div>
-        <div class="tok-amt">${fmtNum(t.balance, t.balance<1?6:2)}</div>
-        <div class="tok-usd" ${t._viaJupiter?'title="Priced via Jupiter"':''}>${t.usdValue!=null ? fmtUsd(t.usdValue) + (t._viaJupiter?' ˙':'') : '—'}</div>
-      </div>`).join('');
-    tokenPanel.innerHTML = html;
+    totalUsdAccum += jupiterTotal; // Helius's totalUsdValue already covers the whole wallet from page 1
+    $('tokenCount').textContent = (parseInt($('tokenCount').textContent, 10) || 0) + tokens.length;
   }
+  $('totalUsd').textContent = fmtUsd(totalUsdAccum);
+
+  tokenHasMore = !!(data.pagination && data.pagination.hasMore);
+  $('tokensLoadMoreRow').style.display = tokenHasMore ? '' : 'none';
+
+  const rowsEl = $('tokensRows');
+  if(page===1 && !sol && tokens.length===0){
+    rowsEl.innerHTML = `<div class="empty">No tokens or SOL found in this wallet.</div>`;
+    return solAmount;
+  }
+  if(page===1) rowsEl.innerHTML = '';
+
+  let html = '';
+  if(sol){
+    html += `<div class="ledger-row clickable" data-mint="${SOL_MINT}" data-symbol="SOL">
+      <img class="tok-icon" src="https://cryptologos.cc/logos/solana-sol-logo.png" onerror="this.style.display='none'">
+      <div><div class="tok-name">Solana <span class="caret">▸</span></div><div class="tok-mint">SOL</div></div>
+      <div class="tok-amt">${fmtNum(solAmount)}</div>
+      <div class="tok-usd">${fmtUsd(solUsd)}</div>
+    </div>
+    <div class="tok-detail" data-mint-detail="${SOL_MINT}"></div>`;
+  }
+  html += tokens.map(t=>`
+    <div class="ledger-row clickable" data-mint="${t.mint}" data-symbol="${t.symbol||''}">
+      <img class="tok-icon" src="${t.logoUri||''}" onerror="this.style.display='none'">
+      <div><div class="tok-name">${t.symbol || t.name || short(t.mint)} <span class="caret">▸</span></div><div class="tok-mint">${t.mint}</div></div>
+      <div class="tok-amt">${fmtNum(t.balance, t.balance<1?6:2)}</div>
+      <div class="tok-usd" ${t._viaJupiter?'title="Priced via Jupiter"':''}>${t.usdValue!=null ? fmtUsd(t.usdValue) + (t._viaJupiter?' ˙':'') : '—'}</div>
+    </div>
+    <div class="tok-detail" data-mint-detail="${t.mint}"></div>`).join('');
+  rowsEl.insertAdjacentHTML('beforeend', html);
+
   return solAmount;
 }
 
-async function loadTransactions(address){
-  const url = `${PROXY}?type=transactions&address=${address}`;
-  const res = await fetch(url);
-  if(!res.ok) throw new Error("Transactions request failed ("+res.status+")");
-  const data = await res.json();
-  const txs = data.data || [];
-
-  const panel = $('panel-txns');
-  if(!txs.length){
-    panel.innerHTML = `<div class="empty">No recent transactions found.</div>`;
-    return txs;
+// Event delegation: clicking a token row expands/collapses its detail panel,
+// listing recent transactions (from already-loaded history) that touched that mint.
+$('tokensRows').addEventListener('click', (e)=>{
+  const row = e.target.closest('.ledger-row.clickable');
+  if(!row) return;
+  const mint = row.dataset.mint;
+  const detail = document.querySelector(`.tok-detail[data-mint-detail="${CSS.escape(mint)}"]`);
+  if(!detail) return;
+  const opening = !detail.classList.contains('show');
+  // collapse any other open detail first
+  document.querySelectorAll('.tok-detail.show').forEach(d=>d.classList.remove('show'));
+  document.querySelectorAll('.ledger-row.expanded').forEach(r=>r.classList.remove('expanded'));
+  if(opening){
+    detail.classList.add('show');
+    row.classList.add('expanded');
+    renderTokenDetail(detail, mint);
   }
-  panel.innerHTML = txs.map(tx=>{
-    const link = `https://solscan.io/tx/${tx.signature}`;
-    if(tx.error){
-      return `<div class="tx-row">
-        <div class="tx-desc"><span class="tx-type" style="color:var(--down); border-color:var(--down);">FAILED</span>Transaction failed</div>
-        <div style="display:flex; align-items:center; gap:10px;">
-          <span class="tx-time">${tx.timestamp ? timeAgo(tx.timestamp) : '—'}</span>
-          <a class="tx-link" href="${link}" target="_blank" rel="noopener">↗</a>
-        </div>
-      </div>`;
-    }
-    const changes = (tx.balanceChanges || []).filter(c => Math.abs(c.amount) > 0);
-    const label = changes.length > 1 ? 'SWAP' : (changes.length === 1 ? (changes[0].amount > 0 ? 'RECEIVE' : 'SEND') : 'TX');
-    const desc = changes.length
-      ? changes.map(c=>{
-          const sym = (c.mint||'').trim() === SOL_MINT ? 'SOL' : short(c.mint);
-          const amt = fmtNum(Math.abs(c.amount), Math.abs(c.amount)<1?6:2);
-          return `${c.amount>0?'+':'-'}${amt} ${sym}`;
-        }).join('  ·  ')
-      : 'No balance change';
+});
+
+function renderTokenDetail(detail, mint){
+  const matches = allTxs.filter(tx => (tx.balanceChanges||[]).some(c => (c.mint||'').trim() === mint.trim()));
+  if(!matches.length){
+    detail.innerHTML = `<div class="detail-empty">No recent transactions involving this token in the loaded history.</div>`;
+    return;
+  }
+  detail.innerHTML = matches.slice(0,10).map(tx=>{
+    const change = (tx.balanceChanges||[]).find(c => (c.mint||'').trim() === mint.trim());
+    const amt = change ? Math.abs(change.amount) : 0;
+    const dir = change && change.amount > 0 ? 'up' : 'down';
+    const sign = change && change.amount > 0 ? '+' : '-';
+    return `<div class="detail-tx">
+      <span>${tx.timestamp ? timeAgo(tx.timestamp) : '—'}</span>
+      <span class="amt ${dir}">${sign}${fmtNum(amt, amt<1?6:2)}</span>
+      <a class="tx-link" href="https://solscan.io/tx/${tx.signature}" target="_blank" rel="noopener">↗</a>
+    </div>`;
+  }).join('');
+}
+
+$('loadMoreTokensBtn').addEventListener('click', async ()=>{
+  const btn = $('loadMoreTokensBtn');
+  btn.disabled = true; btn.textContent = 'Loading…';
+  try{
+    tokenPage += 1;
+    await loadBalancesAndSol(currentAddress, tokenPage);
+  }catch(e){
+    console.error(e);
+  }finally{
+    btn.disabled = false; btn.textContent = 'Load more tokens';
+  }
+});
+
+function renderTxRow(tx){
+  const link = `https://solscan.io/tx/${tx.signature}`;
+  if(tx.error){
     return `<div class="tx-row">
-      <div class="tx-desc"><span class="tx-type">${label}</span>${desc}</div>
+      <div class="tx-desc"><span class="tx-type" style="color:var(--down); border-color:var(--down);">FAILED</span>Transaction failed</div>
       <div style="display:flex; align-items:center; gap:10px;">
         <span class="tx-time">${tx.timestamp ? timeAgo(tx.timestamp) : '—'}</span>
         <a class="tx-link" href="${link}" target="_blank" rel="noopener">↗</a>
       </div>
     </div>`;
-  }).join('');
+  }
+  const changes = (tx.balanceChanges || []).filter(c => Math.abs(c.amount) > 0);
+  const label = changes.length > 1 ? 'SWAP' : (changes.length === 1 ? (changes[0].amount > 0 ? 'RECEIVE' : 'SEND') : 'TX');
+  const desc = changes.length
+    ? changes.map(c=>{
+        const sym = (c.mint||'').trim() === SOL_MINT ? 'SOL' : short(c.mint);
+        const amt = fmtNum(Math.abs(c.amount), Math.abs(c.amount)<1?6:2);
+        return `${c.amount>0?'+':'-'}${amt} ${sym}`;
+      }).join('  ·  ')
+    : 'No balance change';
+  return `<div class="tx-row">
+    <div class="tx-desc"><span class="tx-type">${label}</span>${desc}</div>
+    <div style="display:flex; align-items:center; gap:10px;">
+      <span class="tx-time">${tx.timestamp ? timeAgo(tx.timestamp) : '—'}</span>
+      <a class="tx-link" href="${link}" target="_blank" rel="noopener">↗</a>
+    </div>
+  </div>`;
+}
+
+async function loadTransactions(address, before=null){
+  const url = `${PROXY}?type=transactions&address=${address}${before ? '&before='+before : ''}`;
+  const res = await fetch(url);
+  if(!res.ok) throw new Error("Transactions request failed ("+res.status+")");
+  const data = await res.json();
+  const txs = data.data || [];
+
+  txHasMore = !!(data.pagination && data.pagination.hasMore);
+  txCursor = data.pagination ? data.pagination.nextCursor : null;
+  $('txnsLoadMoreRow').style.display = (txHasMore && txCursor) ? '' : 'none';
+
+  allTxs = allTxs.concat(txs);
+
+  const rowsEl = $('txnsRows');
+  if(!before && !txs.length){
+    rowsEl.innerHTML = `<div class="empty">No recent transactions found.</div>`;
+    return txs;
+  }
+  if(!before) rowsEl.innerHTML = '';
+  rowsEl.insertAdjacentHTML('beforeend', txs.map(renderTxRow).join(''));
   return txs;
 }
+
+$('loadMoreTxnsBtn').addEventListener('click', async ()=>{
+  const btn = $('loadMoreTxnsBtn');
+  btn.disabled = true; btn.textContent = 'Loading…';
+  try{
+    if(txCursor){
+      await loadTransactions(currentAddress, txCursor);
+      renderTrendChart(parseFloat(($('solBal').textContent||'0').replace(' SOL','').replace(/,/g,'')), allTxs);
+    }
+  }catch(e){
+    console.error(e);
+  }finally{
+    btn.disabled = false; btn.textContent = 'Load more transactions';
+  }
+});
 
 async function loadNfts(address){
   const url = `${PROXY}?type=nfts&address=${address}`;
