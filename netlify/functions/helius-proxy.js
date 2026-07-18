@@ -95,10 +95,12 @@ exports.handler = async (event) => {
     let url, options;
 
     if (type === 'balances') {
-      url = `https://api.helius.xyz/v1/wallet/${address}/balances?api-key=${HELIUS_API_KEY}`;
+      const page = extra.page ? `&page=${encodeURIComponent(extra.page)}` : '';
+      url = `https://api.helius.xyz/v1/wallet/${address}/balances?api-key=${HELIUS_API_KEY}${page}`;
       options = { method: 'GET' };
     } else if (type === 'transactions') {
-      url = `https://api.helius.xyz/v1/wallet/${address}/history?api-key=${HELIUS_API_KEY}&limit=25`;
+      const before = extra.before ? `&before=${encodeURIComponent(extra.before)}` : '';
+      url = `https://api.helius.xyz/v1/wallet/${address}/history?api-key=${HELIUS_API_KEY}&limit=25${before}`;
       options = { method: 'GET' };
     } else if (type === 'balance-at') {
       // Diagnostic passthrough: forwards any extra query params (mint, timestamp,
