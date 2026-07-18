@@ -1,5 +1,41 @@
 // Netlify Function: proxies wallet lookups to Helius so the API key
 // never reaches the browser. Key lives in Netlify env var HELIUS_API_KEY.
+//
+// Includes a lightweight in-memory cache and per-IP rate limiter. Both live
+// in module scope, so they persist for the life of a warm function instance
+// but reset on cold start and aren't shared across concurrent instances.
+// That's good enough to absorb repeat lookups and casual hammering; if this
+// ever needs to be bulletproof under real load, swap this for a shared store
+// like Upstash Redis so every instance sees the same counters.
+
+const CACHE_TTL_MS = 30 * 1000; // how long a response is considered fresh
+const cache = new Map(); // key -> { data, status, expiresAt }
+
+const RATE_LIMIT_WINDOW_MS = 60 * 1000;
+const RATE_LIMIT_MAX = 30; // requests per IP per window
+const rateLimits = new Map(); // ip -> { count, windowStart }
+
+function pruneCache(){
+  const now = Date.now();
+  for(const [key, entry] of cache){
+    if(entry.expiresAt < now) cache.delete(key);
+  }
+}
+
+function checkRateLimit(ip){
+  const now = Date.now();
+  const entry = rateLimits.get(ip);
+  if(!entry || now - entry.windowStart > RATE_LIMIT_WINDOW_MS){
+    rateLimits.set(ip, { count: 1, windowStart: now });
+    return { limited: false };
+  }
+  entry.count += 1;
+  if(entry.count > RATE_LIMIT_MAX){
+    const retryAfter = Math.ceil((entry.windowStart + RATE_LIMIT_WINDOW_MS - now) / 1000);
+    return { limited: true, retryAfter };
+  }
+  return { limited: false };
+}
 
 exports.handler = async (event) => {
   const HELIUS_API_KEY = process.env.HELIUS_API_KEY;
@@ -22,6 +58,17 @@ exports.handler = async (event) => {
     };
   }
 
+  // Netlify puts the real client IP first in x-forwarded-for.
+  const ip = (event.headers['x-forwarded-for'] || event.headers['client-ip'] || 'unknown').split(',')[0].trim();
+  const rl = checkRateLimit(ip);
+  if(rl.limited){
+    return {
+      statusCode: 429,
+      headers: { ...headers, 'Retry-After': String(rl.retryAfter) },
+      body: JSON.stringify({ error: 'Too many requests. Please slow down.', retryAfterSeconds: rl.retryAfter }),
+    };
+  }
+
   const { type, address, ...extra } = event.queryStringParameters || {};
 
   if (!address) {
@@ -31,6 +78,17 @@ exports.handler = async (event) => {
   // Very light validation: Solana addresses are base58, 32-44 chars.
   if (!/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(address)) {
     return { statusCode: 400, headers, body: JSON.stringify({ error: 'Invalid Solana address.' }) };
+  }
+
+  const cacheKey = `${type}:${address}:${new URLSearchParams(extra).toString()}`;
+  pruneCache();
+  const cached = cache.get(cacheKey);
+  if(cached && cached.expiresAt > Date.now()){
+    return {
+      statusCode: cached.status,
+      headers: { ...headers, 'Content-Type': 'application/json', 'X-Cache': 'HIT' },
+      body: JSON.stringify(cached.data),
+    };
   }
 
   try {
@@ -68,9 +126,13 @@ exports.handler = async (event) => {
     const res = await fetch(url, options);
     const data = await res.json();
 
+    if(res.ok){
+      cache.set(cacheKey, { data, status: res.status, expiresAt: Date.now() + CACHE_TTL_MS });
+    }
+
     return {
       statusCode: res.status,
-      headers: { ...headers, 'Content-Type': 'application/json' },
+      headers: { ...headers, 'Content-Type': 'application/json', 'X-Cache': 'MISS' },
       body: JSON.stringify(data),
     };
   } catch (err) {
