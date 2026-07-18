@@ -367,11 +367,36 @@ async function loadBalancesAndSol(address){
   const sol = balances.find(isSolEntry);
   const tokens = balances.filter(b => !isSolEntry(b));
 
+  // Helius doesn't have pricing for every token (thin-liquidity memecoins
+  // especially). Fill gaps using Jupiter's price API, which pulls from a
+  // broader set of DEX sources.
+  const unpriced = [sol, ...tokens].filter(b => b && (b.usdValue==null) && b.mint);
+  let jupiterTotal = 0;
+  if(unpriced.length){
+    try{
+      const priceMap = {};
+      const mints = unpriced.map(b=>b.mint);
+      for(let i=0;i<mints.length;i+=50){
+        const batch = mints.slice(i,i+50);
+        const pRes = await fetch(`https://lite-api.jup.ag/price/v3?ids=${batch.join(',')}`);
+        if(pRes.ok) Object.assign(priceMap, await pRes.json());
+      }
+      unpriced.forEach(b=>{
+        const price = priceMap[b.mint]?.usdPrice;
+        if(price!=null){
+          b.usdValue = b.balance * price;
+          b._viaJupiter = true;
+          jupiterTotal += b.usdValue;
+        }
+      });
+    }catch(e){ console.warn("Jupiter price fallback failed", e); }
+  }
+
   const solAmount = sol ? sol.balance : 0;
   const solUsd = sol ? (sol.usdValue || 0) : 0;
   $('solBal').textContent = fmtNum(solAmount) + ' SOL';
   $('tokenCount').textContent = tokens.length;
-  $('totalUsd').textContent = fmtUsd(data.totalUsdValue);
+  $('totalUsd').textContent = fmtUsd((data.totalUsdValue || 0) + jupiterTotal);
 
   const tokenPanel = $('panel-tokens');
   if(!sol && tokens.length===0){
@@ -391,7 +416,7 @@ async function loadBalancesAndSol(address){
         <img class="tok-icon" src="${t.logoUri||''}" onerror="this.style.display='none'">
         <div><div class="tok-name">${t.symbol || t.name || short(t.mint)}</div><div class="tok-mint">${t.mint}</div></div>
         <div class="tok-amt">${fmtNum(t.balance, t.balance<1?6:2)}</div>
-        <div class="tok-usd">${t.usdValue!=null ? fmtUsd(t.usdValue) : '—'}</div>
+        <div class="tok-usd" ${t._viaJupiter?'title="Priced via Jupiter"':''}>${t.usdValue!=null ? fmtUsd(t.usdValue) + (t._viaJupiter?' ˙':'') : '—'}</div>
       </div>`).join('');
     tokenPanel.innerHTML = html;
   }
