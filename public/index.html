@@ -3,7 +3,24 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Ledger — Solana Wallet Tracker</title>
+<title>ZEKE LEDGER — Solana Wallet Tracker</title>
+<meta name="description" content="Balances, transactions, and NFTs for any Solana wallet. On-chain data, made human-readable.">
+
+<link rel="icon" type="image/x-icon" href="/favicon.ico">
+<link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png">
+<link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
+
+<meta property="og:type" content="website">
+<meta property="og:title" content="ZEKE LEDGER — Solana Wallet Tracker">
+<meta property="og:description" content="Balances, transactions, and NFTs for any Solana wallet. On-chain data, made human-readable.">
+<meta property="og:image" content="https://wallet-tracker-site.zeke-tools.workers.dev/og-image.png">
+<meta property="og:url" content="https://wallet-tracker-site.zeke-tools.workers.dev/">
+
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="ZEKE LEDGER — Solana Wallet Tracker">
+<meta name="twitter:description" content="Balances, transactions, and NFTs for any Solana wallet. On-chain data, made human-readable.">
+<meta name="twitter:image" content="https://wallet-tracker-site.zeke-tools.workers.dev/og-image.png">
+
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
 <style>
@@ -251,7 +268,7 @@
 
     .addr-line{gap:6px;}
     .addr-line b{font-size:12px; word-break:break-all;}
-    #exportCardBtn{margin-left:0; order:10; width:100%; text-align:center;}
+    #exportCardBtn, #copyTextBtn{margin-left:0; order:10; width:100%; text-align:center;}
 
     .persona-badge{width:100%; padding:10px 12px;}
     .persona-emoji{font-size:22px;}
@@ -313,6 +330,7 @@
       <button class="copy-btn" id="copyAddrBtn">copy</button>
       <a class="tx-link" id="solscanLink" href="#" target="_blank" rel="noopener">view on solscan ↗</a>
       <button class="copy-btn" id="exportCardBtn" style="margin-left:auto;">📤 export card</button>
+      <button class="copy-btn" id="copyTextBtn">📋 copy as text</button>
     </div>
 
     <div class="persona-badge" id="personaBadge" style="display:none;">
@@ -403,6 +421,45 @@ $('copyAddrBtn').addEventListener('click', async ()=>{
     const btn = $('copyAddrBtn');
     btn.textContent = 'copied'; btn.classList.add('copied');
     setTimeout(()=>{ btn.textContent='copy'; btn.classList.remove('copied'); }, 1500);
+  }catch(e){ console.warn('Clipboard write failed', e); }
+});
+
+// Builds a plain-text summary (no image) formatted for pasting straight into
+// Discord/Telegram — pulls from what's already rendered on the page, so it
+// always matches what the person is looking at.
+function buildTextSummary(){
+  const addr = $('addrDisplay').textContent;
+  const hasPersona = $('personaBadge').style.display !== 'none';
+  const personaLine = hasPersona ? `${$('personaEmoji').textContent} ${$('personaLabel').textContent}` : null;
+
+  const topTokens = Array.from(document.querySelectorAll('#tokensRows .ledger-row')).slice(0, 5).map(row=>{
+    const name = (row.querySelector('.tok-name')?.textContent || '').replace('▸','').trim();
+    const amt = (row.querySelector('.tok-amt')?.textContent || '').trim();
+    const usd = (row.querySelector('.tok-usd')?.textContent || '').trim();
+    const usdPart = (usd && usd !== '—') ? `  (${usd})` : '';
+    return `  ${name}: ${amt}${usdPart}`;
+  }).join('\n');
+
+  return [
+    `ZEKE LEDGER — ${short(addr)}`,
+    personaLine,
+    '',
+    `SOL Balance:     ${$('solBal').textContent}`,
+    `Portfolio Value: ${$('totalUsd').textContent}`,
+    `Tokens Held:     ${$('tokenCount').textContent}`,
+    `NFTs Held:       ${$('nftCount').textContent}`,
+    topTokens ? `\nTop holdings:\n${topTokens}` : null,
+    '',
+    'https://wallet-tracker-site.zeke-tools.workers.dev/',
+  ].filter(line => line !== null).join('\n');
+}
+
+$('copyTextBtn').addEventListener('click', async ()=>{
+  const btn = $('copyTextBtn');
+  try{
+    await navigator.clipboard.writeText(buildTextSummary());
+    btn.textContent = '✅ copied'; btn.classList.add('copied');
+    setTimeout(()=>{ btn.textContent='📋 copy as text'; btn.classList.remove('copied'); }, 1500);
   }catch(e){ console.warn('Clipboard write failed', e); }
 });
 
