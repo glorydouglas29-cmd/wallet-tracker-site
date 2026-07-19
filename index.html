@@ -366,7 +366,7 @@
 const tickerPhrases = ["ON-CHAIN MANIFEST", "SPL TOKEN BALANCES", "REALTIME TRANSACTION LOG", "NFT HOLDINGS", "SOLANA MAINNET", "NO WALLET DATA STORED"];
 document.getElementById('tickerInner').innerHTML = (tickerPhrases.concat(tickerPhrases)).map(t=>`<span>${t}</span>`).join('<span>·</span>');
 
-const PROXY = "/.netlify/functions/helius-proxy";
+const PROXY = "/helius-proxy";
 const $ = id => document.getElementById(id);
 const statusLine = $('statusLine');
 const SOL_MINT = 'So11111111111111111111111111111111111111112';
