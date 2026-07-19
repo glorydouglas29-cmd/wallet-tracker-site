@@ -109,6 +109,12 @@ exports.handler = async (event) => {
       const forwarded = new URLSearchParams(extra).toString();
       url = `https://api.helius.xyz/v1/wallet/${address}/balance-at?api-key=${HELIUS_API_KEY}${forwarded ? '&' + forwarded : ''}`;
       options = { method: 'GET' };
+    } else if (type === 'funded-by') {
+      // Requires a paid Helius plan — free tier returns 403, which we pass
+      // through as-is so the frontend can show a clear message instead of
+      // a generic error.
+      url = `https://api.helius.xyz/v1/wallet/${address}/funded-by?api-key=${HELIUS_API_KEY}`;
+      options = { method: 'GET' };
     } else if (type === 'nfts') {
       url = `https://mainnet.helius-rpc.com/?api-key=${HELIUS_API_KEY}`;
       options = {
