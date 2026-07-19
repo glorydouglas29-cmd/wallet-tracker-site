@@ -1,0 +1,976 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Ledger — Solana Wallet Tracker</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#0B0E14;
+    --surface:#12161F;
+    --surface-2:#171C27;
+    --line:#232A38;
+    --ink:#FF6B35;
+    --ink-dim:#B84E24;
+    --paper:#E8E6DE;
+    --muted:#6B7385;
+    --up:#4ADE80;
+    --down:#F43F5E;
+  }
+  *{box-sizing:border-box; margin:0; padding:0;}
+  body{
+    background:var(--bg);
+    color:var(--paper);
+    font-family:'Inter',sans-serif;
+    min-height:100vh;
+    background-image:
+      linear-gradient(var(--line) 1px, transparent 1px);
+    background-size: 100% 44px;
+    background-attachment:fixed;
+  }
+  .wrap{max-width:920px; margin:0 auto; padding:32px 20px 80px;}
+
+  /* Header / signature ticker */
+  header{margin-bottom:28px;}
+  .brand{
+    display:flex; align-items:baseline; justify-content:space-between; gap:12px; flex-wrap:wrap;
+    border-bottom:1px solid var(--line); padding-bottom:16px; margin-bottom:16px;
+  }
+  .brand-mark{
+    font-family:'Space Grotesk',sans-serif; font-weight:700; font-size:22px; letter-spacing:-0.02em;
+    display:flex; align-items:center; gap:10px;
+  }
+  .brand-mark .dot{width:9px; height:9px; border-radius:50%; background:var(--ink); box-shadow:0 0 10px var(--ink);}
+  .brand-zeke{color:var(--muted); font-weight:500; margin-right:2px;}
+  .brand-sub{font-family:'JetBrains Mono',monospace; font-size:11px; color:var(--muted); letter-spacing:0.04em; text-transform:uppercase;}
+
+  /* Paper grain texture — subtle atmosphere over the whole page */
+  body::before{
+    content:''; position:fixed; inset:0; pointer-events:none; z-index:1; opacity:0.035;
+    background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 200 200'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  }
+  .wrap{position:relative; z-index:2;}
+
+  .ticker{
+    font-family:'JetBrains Mono',monospace; font-size:11px; color:var(--muted);
+    white-space:nowrap; overflow:hidden; position:relative; height:20px; border-top:1px solid var(--line); border-bottom:1px solid var(--line);
+    margin-bottom:24px;
+  }
+  .ticker-inner{position:absolute; display:flex; gap:40px; padding-top:4px; animation:scroll 22s linear infinite;}
+  @keyframes scroll{from{transform:translateX(0);} to{transform:translateX(-50%);}}
+  .ticker span{color:var(--ink-dim);}
+
+  /* Search / config */
+  .panel{
+    background:var(--surface); border:1px solid var(--line); border-radius:10px; padding:20px;
+  }
+  .search-row{display:flex; gap:10px; flex-wrap:wrap;}
+  input[type=text], input[type=password]{
+    background:var(--surface-2); border:1px solid var(--line); color:var(--paper);
+    font-family:'JetBrains Mono',monospace; font-size:13px; padding:12px 14px; border-radius:7px;
+    flex:1; min-width:220px; outline:none;
+  }
+  input[type=text]:focus, input[type=password]:focus{border-color:var(--ink);}
+  button{
+    font-family:'Space Grotesk',sans-serif; font-weight:600; font-size:13px;
+    background:var(--ink); color:#0B0E14; border:none; border-radius:7px; padding:12px 20px;
+    cursor:pointer; letter-spacing:0.01em; transition:transform 0.12s ease, box-shadow 0.12s ease;
+  }
+  button:hover{background:#ff7f4d; box-shadow:0 4px 16px rgba(255,107,53,0.25); transform:translateY(-1px);}
+  button:active{transform:translateY(0);}
+  button:disabled{background:var(--muted); cursor:not-allowed;}
+  button.ghost{background:transparent; border:1px solid var(--line); color:var(--paper);}
+  button.ghost:hover{border-color:var(--ink); color:var(--ink);}
+
+  details.cfg{margin-top:14px;}
+  summary{font-family:'JetBrains Mono',monospace; font-size:11px; color:var(--muted); cursor:pointer; letter-spacing:0.03em; text-transform:uppercase;}
+  .cfg-body{margin-top:12px; display:flex; gap:10px; flex-wrap:wrap;}
+  .cfg-note{font-family:'JetBrains Mono',monospace; font-size:10.5px; color:var(--muted); margin-top:10px; line-height:1.6;}
+  .cfg-note a{color:var(--ink);}
+
+  .status{font-family:'JetBrains Mono',monospace; font-size:12px; color:var(--muted); margin-top:12px; min-height:16px;}
+  .status.err{color:var(--down);}
+
+  /* Overview */
+  .overview{display:none; margin-top:24px;}
+  .overview.show{display:block;}
+  .addr-line{
+    font-family:'JetBrains Mono',monospace; font-size:12px; color:var(--muted);
+    display:flex; align-items:center; gap:8px; margin-bottom:18px; flex-wrap:wrap;
+  }
+  .addr-line b{color:var(--paper); font-weight:500;}
+  .stamp{
+    font-family:'JetBrains Mono',monospace; font-size:10px; letter-spacing:0.08em; text-transform:uppercase;
+    border:1px solid var(--ink); color:var(--ink); padding:3px 8px; border-radius:4px;
+  }
+
+  .persona-badge{
+    display:flex; align-items:center; gap:12px; margin-bottom:20px; padding:12px 16px;
+    border:1.5px solid var(--ink); border-radius:8px; background:rgba(255,107,53,0.06);
+    transform:rotate(-0.6deg); animation:stampIn 0.35s cubic-bezier(0.2,1.4,0.4,1);
+    width:fit-content; max-width:100%;
+  }
+  @keyframes stampIn{
+    from{ opacity:0; transform:rotate(-0.6deg) scale(1.15); }
+    to{ opacity:1; transform:rotate(-0.6deg) scale(1); }
+  }
+  .persona-emoji{font-size:26px; line-height:1;}
+  .persona-label{font-family:'Space Grotesk',sans-serif; font-weight:700; font-size:14px; letter-spacing:0.02em; text-transform:uppercase; color:var(--ink);}
+  .persona-desc{font-family:'JetBrains Mono',monospace; font-size:10.5px; color:var(--muted); margin-top:2px;}
+
+  .origin-trace{
+    font-family:'JetBrains Mono',monospace; font-size:11.5px; color:var(--muted);
+    border:1px dashed var(--line); border-radius:8px; padding:10px 14px; margin-bottom:20px;
+    display:flex; align-items:center; gap:8px; flex-wrap:wrap;
+  }
+  .origin-trace b{color:var(--paper); font-weight:500;}
+  .origin-trace .funder-type{
+    font-size:9.5px; text-transform:uppercase; letter-spacing:0.05em; color:var(--ink);
+    border:1px solid var(--ink-dim); border-radius:4px; padding:1px 6px;
+  }
+
+  .stat-grid{display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:1px; background:var(--line); border:1px solid var(--line); border-radius:10px; overflow:hidden; margin-bottom:24px;}
+
+  .copy-btn{
+    background:none; border:1px solid var(--line); color:var(--muted); border-radius:5px; padding:2px 8px;
+    font-family:'JetBrains Mono',monospace; font-size:10.5px; cursor:pointer; transition:all 0.15s ease;
+  }
+  .copy-btn:hover{border-color:var(--ink); color:var(--ink);}
+  .copy-btn.copied{border-color:var(--up); color:var(--up);}
+
+  .recent-row{display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-top:12px;}
+  .recent-label{font-family:'JetBrains Mono',monospace; font-size:10px; color:var(--muted); text-transform:uppercase; letter-spacing:0.05em;}
+  .recent-chip{
+    font-family:'JetBrains Mono',monospace; font-size:11px; color:var(--paper); background:var(--surface-2);
+    border:1px solid var(--line); border-radius:5px; padding:5px 9px; cursor:pointer; transition:border-color 0.15s ease;
+  }
+  .recent-chip:hover{border-color:var(--ink);}
+
+  .trend-panel{margin-bottom:24px;}
+  .trend-head{display:flex; justify-content:space-between; align-items:baseline; margin-bottom:12px;}
+  .trend-head .label{font-family:'JetBrains Mono',monospace; font-size:10px; color:var(--muted); text-transform:uppercase; letter-spacing:0.06em;}
+  .trend-head .range{font-family:'JetBrains Mono',monospace; font-size:10.5px; color:var(--muted);}
+  .trend-svg{width:100%; height:80px; display:block;}
+  .trend-svg .line{fill:none; stroke:var(--ink); stroke-width:1.5;}
+  .trend-svg .fill{fill:url(#trendGradient); opacity:0.5;}
+  .trend-svg .dot{fill:var(--ink);}
+  .stat{background:var(--surface); padding:18px; position:relative; transition:background 0.15s ease;}
+  .stat::before{content:''; position:absolute; top:0; left:0; right:0; height:2px; background:var(--ink); opacity:0; transition:opacity 0.15s ease;}
+  .stat:hover{background:var(--surface-2);}
+  .stat:hover::before{opacity:0.6;}
+  .stat .label{font-family:'JetBrains Mono',monospace; font-size:10px; color:var(--muted); text-transform:uppercase; letter-spacing:0.06em; margin-bottom:8px;}
+  .stat .value{font-family:'Space Grotesk',sans-serif; font-weight:700; font-size:22px;}
+  .stat .value.up{color:var(--up);}
+  .stat .value.down{color:var(--down);}
+
+  /* Tabs */
+  .tabs{display:flex; gap:4px; border-bottom:1px solid var(--line); margin-bottom:18px;}
+  .tab{
+    font-family:'Space Grotesk',sans-serif; font-weight:600; font-size:13px; color:var(--muted);
+    background:none; border:none; padding:10px 16px; border-radius:0; cursor:pointer;
+    border-bottom:2px solid transparent;
+  }
+  .tab.active{color:var(--ink); border-bottom-color:var(--ink); background:none;}
+  .tab-panel{display:none;}
+  .tab-panel.active{display:block;}
+
+  /* Ledger rows (tokens) */
+  .ledger-row{
+    display:grid; grid-template-columns:36px 1fr auto auto; gap:12px; align-items:center;
+    padding:12px 8px; border-bottom:1px solid var(--line); transition:background 0.15s ease;
+  }
+  .ledger-row:hover{background:var(--surface-2);}
+  .ledger-row:last-child{border-bottom:none;}
+  .tok-icon{width:32px; height:32px; border-radius:50%; background:var(--surface-2); border:1px solid var(--line); object-fit:cover;}
+  .tok-name{font-family:'Space Grotesk',sans-serif; font-weight:600; font-size:14px;}
+  .tok-mint{font-family:'JetBrains Mono',monospace; font-size:10.5px; color:var(--muted);}
+  .tok-amt{font-family:'JetBrains Mono',monospace; font-size:13px; text-align:right;}
+  .tok-usd{font-family:'JetBrains Mono',monospace; font-size:12px; color:var(--muted); text-align:right; min-width:80px;}
+
+  /* Transactions */
+  .tx-row{
+    display:flex; justify-content:space-between; align-items:center; gap:12px;
+    padding:13px 8px; border-bottom:1px solid var(--line); transition:background 0.15s ease;
+  }
+  .tx-row:hover{background:var(--surface-2);}
+  .tx-row:last-child{border-bottom:none;}
+  .tx-desc{font-size:13px; line-height:1.4;}
+  .tx-type{
+    font-family:'JetBrains Mono',monospace; font-size:9.5px; text-transform:uppercase; letter-spacing:0.06em;
+    color:var(--ink); border:1px solid var(--ink-dim); border-radius:4px; padding:2px 6px; margin-right:8px;
+  }
+  .tx-time{font-family:'JetBrains Mono',monospace; font-size:11px; color:var(--muted); white-space:nowrap;}
+  .tx-link{font-family:'JetBrains Mono',monospace; font-size:11px; color:var(--muted); text-decoration:none; border-bottom:1px dotted var(--muted);}
+  .tx-link:hover{color:var(--ink); border-color:var(--ink);}
+
+  /* NFTs */
+  .nft-grid{display:grid; grid-template-columns:repeat(auto-fill,minmax(130px,1fr)); gap:12px;}
+  .nft-card{background:var(--surface-2); border:1px solid var(--line); border-radius:8px; overflow:hidden; transition:transform 0.15s ease, border-color 0.15s ease;}
+  .nft-card:hover{transform:translateY(-3px); border-color:var(--ink-dim);}
+  .nft-card img{width:100%; aspect-ratio:1; object-fit:cover; display:block; background:#0B0E14;}
+  .nft-card .nft-name{font-family:'JetBrains Mono',monospace; font-size:10.5px; padding:8px; color:var(--paper); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
+
+  .empty{font-family:'JetBrains Mono',monospace; font-size:12px; color:var(--muted); padding:30px 8px; text-align:center;}
+
+  .load-more-row{text-align:center; padding:14px 0 4px;}
+  .load-more-row button{width:100%; max-width:220px;}
+
+  .ledger-row.clickable{cursor:pointer;}
+  .ledger-row .caret{color:var(--muted); font-size:10px; margin-left:4px; transition:transform 0.15s ease;}
+  .ledger-row.expanded .caret{transform:rotate(90deg);}
+  .tok-detail{
+    display:none; padding:4px 8px 14px 48px; border-bottom:1px solid var(--line);
+  }
+  .tok-detail.show{display:block;}
+  .tok-detail .detail-tx{
+    display:flex; justify-content:space-between; gap:10px; font-family:'JetBrains Mono',monospace; font-size:11.5px;
+    color:var(--muted); padding:6px 0; border-bottom:1px dashed var(--line);
+  }
+  .tok-detail .detail-tx:last-child{border-bottom:none;}
+  .tok-detail .detail-tx .amt{color:var(--paper);}
+  .tok-detail .detail-tx .amt.up{color:var(--up);}
+  .tok-detail .detail-tx .amt.down{color:var(--down);}
+  .tok-detail .detail-empty{font-family:'JetBrains Mono',monospace; font-size:11px; color:var(--muted); padding:6px 0;}
+  .skel{background:linear-gradient(90deg,var(--surface-2) 25%,var(--line) 50%,var(--surface-2) 75%); background-size:200% 100%; animation:shine 1.4s infinite; border-radius:6px; height:14px;}
+  @keyframes shine{from{background-position:200% 0;} to{background-position:-200% 0;}}
+
+  footer{margin-top:40px; font-family:'JetBrains Mono',monospace; font-size:10.5px; color:var(--muted); text-align:center;}
+
+  @media(max-width:640px){
+    .wrap{padding:20px 14px 60px;}
+    .brand-mark{font-size:18px;}
+    .brand-sub{font-size:9.5px;}
+    .ticker{font-size:9.5px;}
+
+    .search-row{flex-direction:column;}
+    .search-row input, .search-row button{width:100%; min-width:0;}
+
+    .recent-row{gap:6px;}
+
+    .addr-line{gap:6px;}
+    .addr-line b{font-size:12px; word-break:break-all;}
+    #exportCardBtn{margin-left:0; order:10; width:100%; text-align:center;}
+
+    .persona-badge{width:100%; padding:10px 12px;}
+    .persona-emoji{font-size:22px;}
+    .persona-label{font-size:12.5px;}
+
+    .origin-trace{font-size:10.5px; padding:8px 10px;}
+
+    .stat-grid{grid-template-columns:repeat(2,1fr);}
+    .stat .value{font-size:18px;}
+
+    .tabs{overflow-x:auto; -webkit-overflow-scrolling:touch;}
+    .tab{padding:9px 12px; font-size:12px; white-space:nowrap;}
+
+    .trend-svg{height:64px;}
+    .trend-head .label{font-size:9px;}
+
+    .ledger-row{grid-template-columns:28px 1fr auto; gap:8px; padding:11px 4px;}
+    .tok-usd{display:none;}
+    .tok-name{font-size:13px;}
+    .tok-mint{font-size:9.5px;}
+    .tok-detail{padding-left:36px;}
+
+    .tx-row{flex-direction:column; align-items:flex-start; gap:4px; padding:11px 4px;}
+    .tx-desc{font-size:12px;}
+
+    .nft-grid{grid-template-columns:repeat(3,1fr); gap:8px;}
+    .nft-card .nft-name{font-size:9.5px; padding:6px;}
+
+    .load-more-row button{max-width:none;}
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="brand">
+      <div class="brand-mark"><span class="dot"></span><span class="brand-zeke">ZEKE</span> LEDGER</div>
+      <div class="brand-sub">Solana wallet manifest</div>
+    </div>
+    <div class="ticker"><div class="ticker-inner" id="tickerInner"></div></div>
+  </header>
+
+  <div class="panel">
+    <div class="search-row">
+      <input type="text" id="walletInput" placeholder="Paste a Solana wallet address…">
+      <button id="lookupBtn">Look up</button>
+    </div>
+    <div class="cfg-note" style="margin-top:12px;">
+      Data is fetched through a Netlify Function — the Helius API key stays server-side and never reaches this page.
+    </div>
+    <div class="recent-row" id="recentRow"></div>
+    <div class="status" id="statusLine"></div>
+  </div>
+
+  <div class="overview" id="overview">
+    <div class="addr-line">
+      <span class="stamp" id="walletStamp">WALLET</span>
+      <b id="addrDisplay"></b>
+      <button class="copy-btn" id="copyAddrBtn">copy</button>
+      <a class="tx-link" id="solscanLink" href="#" target="_blank" rel="noopener">view on solscan ↗</a>
+      <button class="copy-btn" id="exportCardBtn" style="margin-left:auto;">📤 export card</button>
+    </div>
+
+    <div class="persona-badge" id="personaBadge" style="display:none;">
+      <span class="persona-emoji" id="personaEmoji"></span>
+      <div>
+        <div class="persona-label" id="personaLabel"></div>
+        <div class="persona-desc" id="personaDesc"></div>
+      </div>
+    </div>
+
+    <div class="origin-trace" id="originTrace" style="display:none;"></div>
+
+    <div class="panel trend-panel" id="trendPanel" style="display:none;">
+      <div class="trend-head">
+        <span class="label">SOL balance trend · recent activity</span>
+        <span class="range" id="trendRange"></span>
+      </div>
+      <svg class="trend-svg" id="trendSvg" viewBox="0 0 600 80" preserveAspectRatio="none"></svg>
+    </div>
+
+    <div class="stat-grid">
+      <div class="stat"><div class="label">SOL Balance</div><div class="value" id="solBal">—</div></div>
+      <div class="stat"><div class="label">Portfolio Value</div><div class="value" id="totalUsd">—</div></div>
+      <div class="stat"><div class="label">Tokens Held</div><div class="value" id="tokenCount">—</div></div>
+      <div class="stat"><div class="label">NFTs Held</div><div class="value" id="nftCount">—</div></div>
+    </div>
+
+    <div class="tabs">
+      <button class="tab active" data-tab="tokens">Tokens</button>
+      <button class="tab" data-tab="txns">Transactions</button>
+      <button class="tab" data-tab="nfts">NFTs</button>
+    </div>
+
+    <div class="panel tab-panel active" id="panel-tokens">
+      <div id="tokensRows"></div>
+      <div class="load-more-row" id="tokensLoadMoreRow" style="display:none;"><button class="ghost" id="loadMoreTokensBtn">Load more tokens</button></div>
+    </div>
+
+    <div class="panel tab-panel" id="panel-txns">
+      <div id="txnsRows"></div>
+      <div class="load-more-row" id="txnsLoadMoreRow" style="display:none;"><button class="ghost" id="loadMoreTxnsBtn">Load more transactions</button></div>
+    </div>
+
+    <div class="panel tab-panel" id="panel-nfts"></div>
+  </div>
+
+  <footer>Data via Helius + Jupiter. Not financial advice. This tool reads public on-chain data only.</footer>
+</div>
+
+<script>
+const tickerPhrases = ["ON-CHAIN MANIFEST", "SPL TOKEN BALANCES", "REALTIME TRANSACTION LOG", "NFT HOLDINGS", "SOLANA MAINNET", "NO WALLET DATA STORED"];
+document.getElementById('tickerInner').innerHTML = (tickerPhrases.concat(tickerPhrases)).map(t=>`<span>${t}</span>`).join('<span>·</span>');
+
+const PROXY = "/helius-proxy";
+const $ = id => document.getElementById(id);
+const statusLine = $('statusLine');
+const SOL_MINT = 'So11111111111111111111111111111111111111112';
+let recentLookups = [];
+let currentAddress = '';
+let tokenPage = 1, tokenHasMore = false;
+let txCursor = null, txHasMore = false;
+let allTxs = []; // accumulated across loaded transaction pages, used for trend chart + token click detail
+let lastTrendBalances = [];
+
+function renderRecentLookups(){
+  const row = $('recentRow');
+  if(!recentLookups.length){ row.innerHTML = ''; return; }
+  row.innerHTML = `<span class="recent-label">recent</span>` + recentLookups.map(a=>
+    `<button class="recent-chip" data-addr="${a}">${short(a)}</button>`
+  ).join('');
+  row.querySelectorAll('.recent-chip').forEach(chip=>{
+    chip.addEventListener('click', ()=>{
+      $('walletInput').value = chip.dataset.addr;
+      lookupWallet();
+    });
+  });
+}
+
+function addRecentLookup(address){
+  recentLookups = [address, ...recentLookups.filter(a=>a!==address)].slice(0,5);
+  renderRecentLookups();
+}
+
+$('copyAddrBtn').addEventListener('click', async ()=>{
+  const addr = $('addrDisplay').textContent;
+  try{
+    await navigator.clipboard.writeText(addr);
+    const btn = $('copyAddrBtn');
+    btn.textContent = 'copied'; btn.classList.add('copied');
+    setTimeout(()=>{ btn.textContent='copy'; btn.classList.remove('copied'); }, 1500);
+  }catch(e){ console.warn('Clipboard write failed', e); }
+});
+
+document.querySelectorAll('.tab').forEach(tab=>{
+  tab.addEventListener('click', ()=>{
+    document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
+    document.querySelectorAll('.tab-panel').forEach(p=>p.classList.remove('active'));
+    tab.classList.add('active');
+    $('panel-'+tab.dataset.tab).classList.add('active');
+  });
+});
+
+function short(addr){ return addr.slice(0,4)+'…'+addr.slice(-4); }
+function fmtUsd(n){
+  if(n===null||n===undefined||isNaN(n)) return '—';
+  if(n<0.01 && n>0) return '<$0.01';
+  return '$'+n.toLocaleString('en-US',{maximumFractionDigits: n<1000?2:0});
+}
+function fmtNum(n, decimals=4){
+  if(n===null||n===undefined||isNaN(n)) return '—';
+  return n.toLocaleString('en-US',{maximumFractionDigits:decimals});
+}
+function timeAgo(ts){
+  const s = Math.floor(Date.now()/1000) - ts;
+  if(s<60) return s+'s ago';
+  if(s<3600) return Math.floor(s/60)+'m ago';
+  if(s<86400) return Math.floor(s/3600)+'h ago';
+  return Math.floor(s/86400)+'d ago';
+}
+function skeletonRows(n, panelId){
+  const el = $(panelId);
+  el.innerHTML = Array(n).fill(0).map(()=>`<div style="padding:12px 8px;"><div class="skel" style="width:70%;"></div></div>`).join('');
+}
+
+// Animates a stat element's displayed number counting up from its current
+// value to `to`, using formatFn to render each intermediate frame.
+function animateValue(el, to, formatFn, duration=700){
+  const fromMatch = (el.dataset.rawValue || '0');
+  const from = parseFloat(fromMatch) || 0;
+  if(!isFinite(to)){ el.textContent = formatFn(0); return; }
+  const start = performance.now();
+  el.dataset.rawValue = to;
+  function tick(now){
+    const t = Math.min(1, (now - start) / duration);
+    const eased = 1 - Math.pow(1 - t, 3); // easeOutCubic
+    const current = from + (to - from) * eased;
+    el.textContent = formatFn(current);
+    if(t < 1) requestAnimationFrame(tick);
+  }
+  requestAnimationFrame(tick);
+}
+
+async function lookupWallet(){
+  const address = $('walletInput').value.trim();
+  if(!address){ statusLine.textContent = "Paste a wallet address first."; statusLine.className="status err"; return; }
+
+  currentAddress = address;
+  tokenPage = 1; tokenHasMore = false;
+  txCursor = null; txHasMore = false; allTxs = [];
+  $('tokensLoadMoreRow').style.display = 'none';
+  $('txnsLoadMoreRow').style.display = 'none';
+
+  $('lookupBtn').disabled = true;
+  statusLine.textContent = "Fetching wallet data…";
+  statusLine.className = "status";
+  $('overview').classList.add('show');
+  $('addrDisplay').textContent = address;
+  $('walletStamp').textContent = short(address);
+  $('solscanLink').href = `https://solscan.io/account/${address}`;
+  skeletonRows(4,'tokensRows'); skeletonRows(4,'txnsRows'); skeletonRows(4,'panel-nfts');
+  $('solBal').textContent='…'; $('totalUsd').textContent='…'; $('tokenCount').textContent='…'; $('nftCount').textContent='…';
+  [$('solBal'), $('totalUsd'), $('tokenCount'), $('nftCount')].forEach(el=>{ el.dataset.rawValue = '0'; });
+  $('personaBadge').style.display = 'none';
+  $('originTrace').style.display = 'none';
+
+  try{
+    const [solAmount] = await Promise.all([loadBalancesAndSol(address), loadTransactions(address), loadNfts(address)]);
+    renderTrendChart(solAmount, allTxs);
+    renderPersonaBadge();
+    loadOriginTrace(address); // fire-and-forget: non-critical, shouldn't block or fail the main lookup
+    addRecentLookup(address);
+    statusLine.textContent = "Updated " + new Date().toLocaleTimeString();
+    statusLine.className = "status";
+  }catch(err){
+    console.error(err);
+    statusLine.textContent = "Error: " + err.message;
+    statusLine.className = "status err";
+  }finally{
+    $('lookupBtn').disabled = false;
+  }
+}
+
+async function exportCard(){
+  await document.fonts.ready;
+  const persona = computePersona();
+  const solBal = $('solBal').textContent;
+  const totalUsd = $('totalUsd').textContent;
+  const tokenCount = $('tokenCount').textContent;
+  const nftCount = $('nftCount').textContent;
+  const addr = $('addrDisplay').textContent;
+
+  const W=1200, H=675;
+  const canvas = document.createElement('canvas');
+  canvas.width=W; canvas.height=H;
+  const ctx = canvas.getContext('2d');
+
+  ctx.fillStyle = '#0B0E14';
+  ctx.fillRect(0,0,W,H);
+  ctx.strokeStyle = 'rgba(255,255,255,0.03)';
+  ctx.lineWidth = 1;
+  for(let y=0; y<H; y+=44){ ctx.beginPath(); ctx.moveTo(0,y+0.5); ctx.lineTo(W,y+0.5); ctx.stroke(); }
+
+  // brand
+  ctx.fillStyle = '#FF6B35';
+  ctx.beginPath(); ctx.arc(60,58,6,0,Math.PI*2); ctx.fill();
+  ctx.font = '500 30px "Space Grotesk"';
+  ctx.fillStyle = '#6B7385';
+  ctx.fillText('ZEKE ', 78, 68);
+  const zekeW = ctx.measureText('ZEKE ').width;
+  ctx.font = '700 30px "Space Grotesk"';
+  ctx.fillStyle = '#E8E6DE';
+  ctx.fillText('LEDGER', 78+zekeW, 68);
+
+  ctx.textAlign = 'right';
+  ctx.font = '400 14px "JetBrains Mono"';
+  ctx.fillStyle = '#6B7385';
+  ctx.fillText(new Date().toLocaleDateString('en-US',{year:'numeric',month:'short',day:'numeric'}), W-60, 54);
+  ctx.textAlign = 'left';
+
+  // persona hero
+  ctx.font = '700 60px "Space Grotesk"';
+  ctx.fillStyle = '#FF6B35';
+  ctx.fillText(`${persona.emoji}  ${persona.label.toUpperCase()}`, 60, 190);
+
+  ctx.font = '400 19px "JetBrains Mono"';
+  ctx.fillStyle = '#6B7385';
+  ctx.fillText(persona.desc, 60, 224);
+
+  ctx.font = '500 22px "JetBrains Mono"';
+  ctx.fillStyle = '#E8E6DE';
+  ctx.fillText(short(addr), 60, 268);
+
+  // stat grid
+  const stats = [
+    {label:'SOL BALANCE', value: solBal},
+    {label:'PORTFOLIO VALUE', value: totalUsd},
+    {label:'TOKENS HELD', value: tokenCount},
+    {label:'NFTS HELD', value: nftCount},
+  ];
+  const boxW = (W-120-3*16)/4, boxH=100, startX=60, startY=310;
+  stats.forEach((s,i)=>{
+    const x = startX + i*(boxW+16);
+    ctx.strokeStyle = '#232A38';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(x, startY, boxW, boxH);
+    ctx.font = '500 12px "JetBrains Mono"';
+    ctx.fillStyle = '#6B7385';
+    ctx.fillText(s.label, x+14, startY+28);
+    ctx.font = '700 25px "Space Grotesk"';
+    ctx.fillStyle = '#E8E6DE';
+    ctx.fillText(s.value, x+14, startY+68);
+  });
+
+  // sparkline
+  if(lastTrendBalances.length > 1){
+    const sx=60, sy=460, sw=W-120, sh=110;
+    ctx.font = '400 12px "JetBrains Mono"';
+    ctx.fillStyle = '#6B7385';
+    ctx.fillText('SOL BALANCE TREND', sx, sy-14);
+
+    const vals = lastTrendBalances;
+    const min = Math.min(...vals), max = Math.max(...vals), spread = (max-min)||1;
+    const coords = vals.map((v,i)=>[sx + (i/(vals.length-1))*sw, sy+sh - ((v-min)/spread)*sh]);
+
+    ctx.beginPath();
+    coords.forEach((c,i)=>{ if(i===0) ctx.moveTo(c[0],c[1]); else ctx.lineTo(c[0],c[1]); });
+    ctx.lineTo(sx+sw, sy+sh); ctx.lineTo(sx, sy+sh); ctx.closePath();
+    const grad = ctx.createLinearGradient(0,sy,0,sy+sh);
+    grad.addColorStop(0,'rgba(255,107,53,0.4)');
+    grad.addColorStop(1,'rgba(255,107,53,0)');
+    ctx.fillStyle = grad;
+    ctx.fill();
+
+    ctx.beginPath();
+    coords.forEach((c,i)=>{ if(i===0) ctx.moveTo(c[0],c[1]); else ctx.lineTo(c[0],c[1]); });
+    ctx.strokeStyle = '#FF6B35';
+    ctx.lineWidth = 2.5;
+    ctx.stroke();
+  }
+
+  ctx.font = '400 13px "JetBrains Mono"';
+  ctx.fillStyle = '#6B7385';
+  ctx.fillText('Generated with ZEKE LEDGER · not financial advice · public on-chain data only', 60, H-30);
+
+  return new Promise(resolve=>{
+    canvas.toBlob((blob)=>{
+      const filename = `zeke-ledger-${short(addr)}.png`;
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = filename;
+      a.click();
+      URL.revokeObjectURL(url);
+      resolve();
+    }, 'image/png');
+  });
+}
+
+$('exportCardBtn').addEventListener('click', async ()=>{
+  const btn = $('exportCardBtn');
+  const original = btn.textContent;
+  btn.disabled = true; btn.textContent = 'generating…';
+  try{ await exportCard(); }
+  catch(e){ console.error(e); }
+  finally{ btn.disabled = false; btn.textContent = original; }
+});
+
+async function loadOriginTrace(address){
+  const box = $('originTrace');
+  box.style.display = 'none';
+  try{
+    const res = await fetch(`${PROXY}?type=funded-by&address=${address}`);
+    if(res.status === 403){
+      box.innerHTML = `🔒 Origin trace needs a paid Helius plan (free tier doesn't include /funded-by).`;
+      box.style.display = 'flex';
+      return;
+    }
+    if(!res.ok) return; // stay silent on other errors — this is a nice-to-have, not core data
+    const funding = await res.json();
+    if(!funding || (!funding.funder && !funding.funderName)) return;
+
+    const who = funding.funderName || short(funding.funder || '');
+    const typeTag = funding.funderType ? `<span class="funder-type">${funding.funderType}</span>` : '';
+    const amt = funding.amount!=null ? ` with <b>${fmtNum(funding.amount,4)} SOL</b>` : '';
+    const when = funding.timestamp ? ` · ${timeAgo(funding.timestamp)}` : '';
+    box.innerHTML = `🔗 Traced to <b>${who}</b>${typeTag}${amt}${when}`;
+    box.style.display = 'flex';
+  }catch(e){
+    console.warn('Origin trace failed', e); // silent failure — non-critical feature
+  }
+}
+// signals already fetched: portfolio value, token/NFT mix, and swap
+// frequency from the loaded transaction history. Best-effort, not scientific
+// — it's a fun read of the data, not a claim about the person behind it.
+function computePersona(){
+  const portfolioValue = totalUsdAccum || 0;
+  const tokenCount = parseFloat($('tokenCount').dataset.rawValue) || 0;
+  const nftCount = parseFloat($('nftCount').dataset.rawValue) || 0;
+  const totalTx = allTxs.length;
+  const swapCount = allTxs.filter(tx => !tx.error && (tx.balanceChanges||[]).filter(c=>Math.abs(c.amount)>0).length > 1).length;
+  const swapRatio = totalTx ? swapCount / totalTx : 0;
+
+  if(portfolioValue >= 10000){
+    return { emoji:'🐋', label:'Whale', desc:`$${Math.round(portfolioValue).toLocaleString()} portfolio value tracked` };
+  }
+  if(nftCount >= 5 && tokenCount <= 4){
+    return { emoji:'🖼️', label:'NFT Collector', desc:`${nftCount} NFTs held, light on tokens` };
+  }
+  if(totalTx >= 10 && swapRatio >= 0.6){
+    return { emoji:'🎰', label:'Serial Aper', desc:`${swapCount} of ${totalTx} recent tx were swaps` };
+  }
+  if(totalTx > 0 && totalTx <= 3){
+    return { emoji:'💎', label:'Diamond Hands', desc:`Only ${totalTx} recent tx — barely touches this wallet` };
+  }
+  if(tokenCount >= 8){
+    return { emoji:'🧺', label:'Bag Holder', desc:`${tokenCount} different tokens in the bag` };
+  }
+  return { emoji:'🧭', label:'On-Chain Wanderer', desc:'A bit of everything, no strong pattern yet' };
+}
+
+function renderPersonaBadge(){
+  const p = computePersona();
+  $('personaEmoji').textContent = p.emoji;
+  $('personaLabel').textContent = p.label;
+  $('personaDesc').textContent = p.desc;
+  $('personaBadge').style.display = 'flex';
+}
+
+let totalUsdAccum = 0;
+
+async function loadBalancesAndSol(address, page=1){
+  const url = `${PROXY}?type=balances&address=${address}&page=${page}`;
+  const res = await fetch(url);
+  if(!res.ok) throw new Error("Balances request failed ("+res.status+")");
+  const data = await res.json();
+
+  const balances = data.balances || [];
+  const isSolEntry = b => (b.mint||'').trim() === SOL_MINT || (b.symbol||'').trim().toUpperCase() === 'SOL';
+  const sol = page===1 ? balances.find(isSolEntry) : null;
+  const tokens = balances.filter(b => !isSolEntry(b));
+
+  // Helius doesn't have pricing for every token (thin-liquidity memecoins
+  // especially). Fill gaps using Jupiter's price API, which pulls from a
+  // broader set of DEX sources.
+  const unpriced = [sol, ...tokens].filter(b => b && (b.usdValue==null) && b.mint);
+  let jupiterTotal = 0;
+  if(unpriced.length){
+    try{
+      const priceMap = {};
+      const mints = unpriced.map(b=>b.mint);
+      for(let i=0;i<mints.length;i+=50){
+        const batch = mints.slice(i,i+50);
+        const pRes = await fetch(`https://lite-api.jup.ag/price/v3?ids=${batch.join(',')}`);
+        if(pRes.ok) Object.assign(priceMap, await pRes.json());
+      }
+      unpriced.forEach(b=>{
+        const price = priceMap[b.mint]?.usdPrice;
+        if(price!=null){
+          b.usdValue = b.balance * price;
+          b._viaJupiter = true;
+          jupiterTotal += b.usdValue;
+        }
+      });
+    }catch(e){ console.warn("Jupiter price fallback failed", e); }
+  }
+
+  const solAmount = sol ? sol.balance : 0;
+  const solUsd = sol ? (sol.usdValue || 0) : 0;
+
+  if(page===1){
+    totalUsdAccum = (data.totalUsdValue || 0) + jupiterTotal;
+    animateValue($('solBal'), solAmount, v => fmtNum(v) + ' SOL');
+    animateValue($('tokenCount'), tokens.length, v => Math.round(v).toLocaleString());
+  } else {
+    totalUsdAccum += jupiterTotal; // Helius's totalUsdValue already covers the whole wallet from page 1
+    const newTokenCount = (parseFloat($('tokenCount').dataset.rawValue) || 0) + tokens.length;
+    animateValue($('tokenCount'), newTokenCount, v => Math.round(v).toLocaleString());
+  }
+  animateValue($('totalUsd'), totalUsdAccum, v => fmtUsd(v));
+
+  tokenHasMore = !!(data.pagination && data.pagination.hasMore);
+  $('tokensLoadMoreRow').style.display = tokenHasMore ? '' : 'none';
+
+  const rowsEl = $('tokensRows');
+  if(page===1 && !sol && tokens.length===0){
+    rowsEl.innerHTML = `<div class="empty">No tokens or SOL found in this wallet.</div>`;
+    return solAmount;
+  }
+  if(page===1) rowsEl.innerHTML = '';
+
+  let html = '';
+  if(sol){
+    html += `<div class="ledger-row clickable" data-mint="${SOL_MINT}" data-symbol="SOL">
+      <img class="tok-icon" src="https://cryptologos.cc/logos/solana-sol-logo.png" onerror="this.style.display='none'">
+      <div><div class="tok-name">Solana <span class="caret">▸</span></div><div class="tok-mint">SOL</div></div>
+      <div class="tok-amt">${fmtNum(solAmount)}</div>
+      <div class="tok-usd">${fmtUsd(solUsd)}</div>
+    </div>
+    <div class="tok-detail" data-mint-detail="${SOL_MINT}"></div>`;
+  }
+  html += tokens.map(t=>`
+    <div class="ledger-row clickable" data-mint="${t.mint}" data-symbol="${t.symbol||''}">
+      <img class="tok-icon" src="${t.logoUri||''}" onerror="this.style.display='none'">
+      <div><div class="tok-name">${t.symbol || t.name || short(t.mint)} <span class="caret">▸</span></div><div class="tok-mint">${t.mint}</div></div>
+      <div class="tok-amt">${fmtNum(t.balance, t.balance<1?6:2)}</div>
+      <div class="tok-usd" ${t._viaJupiter?'title="Priced via Jupiter"':''}>${t.usdValue!=null ? fmtUsd(t.usdValue) + (t._viaJupiter?' ˙':'') : '—'}</div>
+    </div>
+    <div class="tok-detail" data-mint-detail="${t.mint}"></div>`).join('');
+  rowsEl.insertAdjacentHTML('beforeend', html);
+
+  return solAmount;
+}
+
+// Event delegation: clicking a token row expands/collapses its detail panel,
+// listing recent transactions (from already-loaded history) that touched that mint.
+$('tokensRows').addEventListener('click', (e)=>{
+  const row = e.target.closest('.ledger-row.clickable');
+  if(!row) return;
+  const mint = row.dataset.mint;
+  const detail = document.querySelector(`.tok-detail[data-mint-detail="${CSS.escape(mint)}"]`);
+  if(!detail) return;
+  const opening = !detail.classList.contains('show');
+  // collapse any other open detail first
+  document.querySelectorAll('.tok-detail.show').forEach(d=>d.classList.remove('show'));
+  document.querySelectorAll('.ledger-row.expanded').forEach(r=>r.classList.remove('expanded'));
+  if(opening){
+    detail.classList.add('show');
+    row.classList.add('expanded');
+    renderTokenDetail(detail, mint);
+  }
+});
+
+function renderTokenDetail(detail, mint){
+  const matches = allTxs.filter(tx => (tx.balanceChanges||[]).some(c => (c.mint||'').trim() === mint.trim()));
+  if(!matches.length){
+    detail.innerHTML = `<div class="detail-empty">No recent transactions involving this token in the loaded history.</div>`;
+    return;
+  }
+  detail.innerHTML = matches.slice(0,10).map(tx=>{
+    const change = (tx.balanceChanges||[]).find(c => (c.mint||'').trim() === mint.trim());
+    const amt = change ? Math.abs(change.amount) : 0;
+    const dir = change && change.amount > 0 ? 'up' : 'down';
+    const sign = change && change.amount > 0 ? '+' : '-';
+    return `<div class="detail-tx">
+      <span>${tx.timestamp ? timeAgo(tx.timestamp) : '—'}</span>
+      <span class="amt ${dir}">${sign}${fmtNum(amt, amt<1?6:2)}</span>
+      <a class="tx-link" href="https://solscan.io/tx/${tx.signature}" target="_blank" rel="noopener">↗</a>
+    </div>`;
+  }).join('');
+}
+
+$('loadMoreTokensBtn').addEventListener('click', async ()=>{
+  const btn = $('loadMoreTokensBtn');
+  btn.disabled = true; btn.textContent = 'Loading…';
+  try{
+    tokenPage += 1;
+    await loadBalancesAndSol(currentAddress, tokenPage);
+    renderPersonaBadge();
+  }catch(e){
+    console.error(e);
+  }finally{
+    btn.disabled = false; btn.textContent = 'Load more tokens';
+  }
+});
+
+function renderTxRow(tx){
+  const link = `https://solscan.io/tx/${tx.signature}`;
+  if(tx.error){
+    return `<div class="tx-row">
+      <div class="tx-desc"><span class="tx-type" style="color:var(--down); border-color:var(--down);">FAILED</span>Transaction failed</div>
+      <div style="display:flex; align-items:center; gap:10px;">
+        <span class="tx-time">${tx.timestamp ? timeAgo(tx.timestamp) : '—'}</span>
+        <a class="tx-link" href="${link}" target="_blank" rel="noopener">↗</a>
+      </div>
+    </div>`;
+  }
+  const changes = (tx.balanceChanges || []).filter(c => Math.abs(c.amount) > 0);
+  const label = changes.length > 1 ? 'SWAP' : (changes.length === 1 ? (changes[0].amount > 0 ? 'RECEIVE' : 'SEND') : 'TX');
+  const desc = changes.length
+    ? changes.map(c=>{
+        const sym = (c.mint||'').trim() === SOL_MINT ? 'SOL' : short(c.mint);
+        const amt = fmtNum(Math.abs(c.amount), Math.abs(c.amount)<1?6:2);
+        return `${c.amount>0?'+':'-'}${amt} ${sym}`;
+      }).join('  ·  ')
+    : 'No balance change';
+  return `<div class="tx-row">
+    <div class="tx-desc"><span class="tx-type">${label}</span>${desc}</div>
+    <div style="display:flex; align-items:center; gap:10px;">
+      <span class="tx-time">${tx.timestamp ? timeAgo(tx.timestamp) : '—'}</span>
+      <a class="tx-link" href="${link}" target="_blank" rel="noopener">↗</a>
+    </div>
+  </div>`;
+}
+
+async function loadTransactions(address, before=null){
+  const url = `${PROXY}?type=transactions&address=${address}${before ? '&before='+before : ''}`;
+  const res = await fetch(url);
+  if(!res.ok) throw new Error("Transactions request failed ("+res.status+")");
+  const data = await res.json();
+  const txs = data.data || [];
+
+  txHasMore = !!(data.pagination && data.pagination.hasMore);
+  txCursor = data.pagination ? data.pagination.nextCursor : null;
+  $('txnsLoadMoreRow').style.display = (txHasMore && txCursor) ? '' : 'none';
+
+  allTxs = allTxs.concat(txs);
+
+  const rowsEl = $('txnsRows');
+  if(!before && !txs.length){
+    rowsEl.innerHTML = `<div class="empty">No recent transactions found.</div>`;
+    return txs;
+  }
+  if(!before) rowsEl.innerHTML = '';
+  rowsEl.insertAdjacentHTML('beforeend', txs.map(renderTxRow).join(''));
+  return txs;
+}
+
+$('loadMoreTxnsBtn').addEventListener('click', async ()=>{
+  const btn = $('loadMoreTxnsBtn');
+  btn.disabled = true; btn.textContent = 'Loading…';
+  try{
+    if(txCursor){
+      await loadTransactions(currentAddress, txCursor);
+      renderTrendChart(parseFloat(($('solBal').textContent||'0').replace(' SOL','').replace(/,/g,'')), allTxs);
+      renderPersonaBadge();
+    }
+  }catch(e){
+    console.error(e);
+  }finally{
+    btn.disabled = false; btn.textContent = 'Load more transactions';
+  }
+});
+
+async function loadNfts(address){
+  const url = `${PROXY}?type=nfts&address=${address}`;
+  const res = await fetch(url);
+  if(!res.ok) throw new Error("NFT request failed ("+res.status+")");
+  const data = await res.json();
+  const items = (data.result?.items || []).filter(i=>i.interface==='V1_NFT' || i.interface==='ProgrammableNFT');
+
+  animateValue($('nftCount'), data.result?.total ?? items.length, v => Math.round(v).toLocaleString());
+
+  const panel = $('panel-nfts');
+  if(!items.length){
+    panel.innerHTML = `<div class="empty">No NFTs found in this wallet.</div>`;
+    return;
+  }
+  panel.innerHTML = `<div class="nft-grid">` + items.map(nft=>{
+    const img = nft.content?.links?.image || nft.content?.files?.[0]?.uri || '';
+    const name = nft.content?.metadata?.name || 'Untitled';
+    return `<div class="nft-card">
+      <img src="${img}" loading="lazy" onerror="this.style.opacity=0.2">
+      <div class="nft-name">${name}</div>
+    </div>`;
+  }).join('') + `</div>`;
+}
+
+$('lookupBtn').addEventListener('click', lookupWallet);
+$('walletInput').addEventListener('keydown', e=>{ if(e.key==='Enter') lookupWallet(); });
+
+function renderTrendChart(currentSolBalance, txs){
+  const panel = $('trendPanel');
+  const range = $('trendRange');
+  const svg = $('trendSvg');
+
+  if(currentSolBalance==null || !txs || !txs.length){
+    panel.style.display = 'none';
+    return;
+  }
+
+  // Walk backward through history (newest first) reconstructing the SOL
+  // balance immediately after each transaction, using each tx's own delta.
+  let running = currentSolBalance;
+  const points = [{ t: Date.now()/1000, bal: running }];
+  for(const tx of txs){
+    if(tx.error) continue;
+    const solChange = (tx.balanceChanges||[])
+      .filter(c=>(c.mint||'').trim()===SOL_MINT)
+      .reduce((sum,c)=>sum+c.amount, 0);
+    points.push({ t: tx.timestamp || points[points.length-1].t, bal: running });
+    running -= solChange;
+  }
+  points.push({ t: points[points.length-1].t, bal: running }); // balance before the oldest tx shown
+  points.reverse(); // chronological, oldest -> newest
+
+  if(points.length < 2){ panel.style.display = 'none'; return; }
+  lastTrendBalances = points.map(p=>p.bal); // reused by the export card sparkline
+
+  const vals = points.map(p=>p.bal);
+  const min = Math.min(...vals), max = Math.max(...vals);
+  const spread = (max - min) || 1;
+  const W = 600, H = 80, PAD = 4;
+
+  const coords = points.map((p,i)=>{
+    const x = (i/(points.length-1)) * W;
+    const y = H - PAD - ((p.bal - min)/spread) * (H - PAD*2);
+    return [x,y];
+  });
+
+  const linePath = coords.map((c,i)=> (i===0?'M':'L') + c[0].toFixed(1) + ',' + c[1].toFixed(1)).join(' ');
+  const fillPath = linePath + ` L${W},${H} L0,${H} Z`;
+
+  const oldest = points[0].t, newest = points[points.length-1].t;
+  const spanDays = Math.max(1, Math.round((newest - oldest) / 86400));
+  range.textContent = `~${spanDays}d · ${points.length-1} tx`;
+
+  svg.innerHTML = `
+    <defs>
+      <linearGradient id="trendGradient" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0%" stop-color="#FF6B35" stop-opacity="0.5"/>
+        <stop offset="100%" stop-color="#FF6B35" stop-opacity="0"/>
+      </linearGradient>
+    </defs>
+    <path class="fill" d="${fillPath}"></path>
+    <path class="line" d="${linePath}"></path>
+    <circle class="dot" cx="${coords[coords.length-1][0]}" cy="${coords[coords.length-1][1]}" r="2.5"></circle>
+  `;
+  panel.style.display = '';
+}
+</script>
+</body>
+</html>
