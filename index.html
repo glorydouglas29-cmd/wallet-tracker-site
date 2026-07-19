@@ -598,18 +598,11 @@ async function exportCard(){
   ctx.fillText('Generated with ZEKE LEDGER · not financial advice · public on-chain data only', 60, H-30);
 
   return new Promise(resolve=>{
-    canvas.toBlob(async (blob)=>{
-      const file = new File([blob], `zeke-ledger-${short(addr)}.png`, {type:'image/png'});
-      if(navigator.share && navigator.canShare && navigator.canShare({files:[file]})){
-        try{
-          await navigator.share({files:[file], title:'ZEKE LEDGER wallet card'});
-          resolve();
-          return;
-        }catch(e){ /* user cancelled or share failed — fall through to download */ }
-      }
+    canvas.toBlob((blob)=>{
+      const filename = `zeke-ledger-${short(addr)}.png`;
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
-      a.href = url; a.download = file.name;
+      a.href = url; a.download = filename;
       a.click();
       URL.revokeObjectURL(url);
       resolve();
