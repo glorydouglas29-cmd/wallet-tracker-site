@@ -3,7 +3,24 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Ledger — Solana Wallet Tracker</title>
+<title>ZEKE LEDGER — Solana Wallet Tracker</title>
+<meta name="description" content="Balances, transactions, and NFTs for any Solana wallet. On-chain data, made human-readable.">
+
+<link rel="icon" type="image/x-icon" href="/favicon.ico">
+<link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png">
+<link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
+
+<meta property="og:type" content="website">
+<meta property="og:title" content="ZEKE LEDGER — Solana Wallet Tracker">
+<meta property="og:description" content="Balances, transactions, and NFTs for any Solana wallet. On-chain data, made human-readable.">
+<meta property="og:image" content="https://wallet-tracker-site.zeke-tools.workers.dev/og-image.png">
+<meta property="og:url" content="https://wallet-tracker-site.zeke-tools.workers.dev/">
+
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="ZEKE LEDGER — Solana Wallet Tracker">
+<meta name="twitter:description" content="Balances, transactions, and NFTs for any Solana wallet. On-chain data, made human-readable.">
+<meta name="twitter:image" content="https://wallet-tracker-site.zeke-tools.workers.dev/og-image.png">
+
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
 <style>
@@ -123,13 +140,14 @@
   .origin-trace{
     font-family:'JetBrains Mono',monospace; font-size:11.5px; color:var(--muted);
     border:1px dashed var(--line); border-radius:8px; padding:10px 14px; margin-bottom:20px;
-    display:flex; align-items:center; gap:8px; flex-wrap:wrap;
   }
   .origin-trace b{color:var(--paper); font-weight:500;}
-  .origin-trace .funder-type{
-    font-size:9.5px; text-transform:uppercase; letter-spacing:0.05em; color:var(--ink);
-    border:1px solid var(--ink-dim); border-radius:4px; padding:1px 6px;
-  }
+  .origin-trace .origin-summary{display:flex; align-items:center; gap:8px; flex-wrap:wrap;}
+  .origin-chain{list-style:none; margin:10px 0 0; padding:8px 0 0; border-top:1px dashed var(--line);}
+  .origin-chain li{display:flex; align-items:center; gap:8px; padding:3px 0; flex-wrap:wrap;}
+  .origin-chain .hop-arrow{color:var(--muted);}
+  .origin-chain .hop-addr{color:var(--paper);}
+  .origin-chain .hop-date{color:var(--muted); font-size:10.5px;}
 
   .stat-grid{display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:1px; background:var(--line); border:1px solid var(--line); border-radius:10px; overflow:hidden; margin-bottom:24px;}
 
@@ -233,6 +251,8 @@
   .tok-detail .detail-tx .amt.up{color:var(--up);}
   .tok-detail .detail-tx .amt.down{color:var(--down);}
   .tok-detail .detail-empty{font-family:'JetBrains Mono',monospace; font-size:11px; color:var(--muted); padding:6px 0;}
+  .detail-origin{margin-top:8px; padding-top:8px; border-top:1px dashed var(--line);}
+  .detail-origin-result{font-family:'JetBrains Mono',monospace; font-size:11px; color:var(--muted); margin-top:6px; line-height:1.5;}
   .skel{background:linear-gradient(90deg,var(--surface-2) 25%,var(--line) 50%,var(--surface-2) 75%); background-size:200% 100%; animation:shine 1.4s infinite; border-radius:6px; height:14px;}
   @keyframes shine{from{background-position:200% 0;} to{background-position:-200% 0;}}
 
@@ -251,7 +271,7 @@
 
     .addr-line{gap:6px;}
     .addr-line b{font-size:12px; word-break:break-all;}
-    #exportCardBtn{margin-left:0; order:10; width:100%; text-align:center;}
+    #exportCardBtn, #copyTextBtn{margin-left:0; order:10; width:100%; text-align:center;}
 
     .persona-badge{width:100%; padding:10px 12px;}
     .persona-emoji{font-size:22px;}
@@ -313,6 +333,7 @@
       <button class="copy-btn" id="copyAddrBtn">copy</button>
       <a class="tx-link" id="solscanLink" href="#" target="_blank" rel="noopener">view on solscan ↗</a>
       <button class="copy-btn" id="exportCardBtn" style="margin-left:auto;">📤 export card</button>
+      <button class="copy-btn" id="copyTextBtn">📋 copy as text</button>
     </div>
 
     <div class="persona-badge" id="personaBadge" style="display:none;">
@@ -403,6 +424,45 @@ $('copyAddrBtn').addEventListener('click', async ()=>{
     const btn = $('copyAddrBtn');
     btn.textContent = 'copied'; btn.classList.add('copied');
     setTimeout(()=>{ btn.textContent='copy'; btn.classList.remove('copied'); }, 1500);
+  }catch(e){ console.warn('Clipboard write failed', e); }
+});
+
+// Builds a plain-text summary (no image) formatted for pasting straight into
+// Discord/Telegram — pulls from what's already rendered on the page, so it
+// always matches what the person is looking at.
+function buildTextSummary(){
+  const addr = $('addrDisplay').textContent;
+  const hasPersona = $('personaBadge').style.display !== 'none';
+  const personaLine = hasPersona ? `${$('personaEmoji').textContent} ${$('personaLabel').textContent}` : null;
+
+  const topTokens = Array.from(document.querySelectorAll('#tokensRows .ledger-row')).slice(0, 5).map(row=>{
+    const name = (row.querySelector('.tok-name')?.textContent || '').replace('▸','').trim();
+    const amt = (row.querySelector('.tok-amt')?.textContent || '').trim();
+    const usd = (row.querySelector('.tok-usd')?.textContent || '').trim();
+    const usdPart = (usd && usd !== '—') ? `  (${usd})` : '';
+    return `  ${name}: ${amt}${usdPart}`;
+  }).join('\n');
+
+  return [
+    `ZEKE LEDGER — ${short(addr)}`,
+    personaLine,
+    '',
+    `SOL Balance:     ${$('solBal').textContent}`,
+    `Portfolio Value: ${$('totalUsd').textContent}`,
+    `Tokens Held:     ${$('tokenCount').textContent}`,
+    `NFTs Held:       ${$('nftCount').textContent}`,
+    topTokens ? `\nTop holdings:\n${topTokens}` : null,
+    '',
+    'https://wallet-tracker-site.zeke-tools.workers.dev/',
+  ].filter(line => line !== null).join('\n');
+}
+
+$('copyTextBtn').addEventListener('click', async ()=>{
+  const btn = $('copyTextBtn');
+  try{
+    await navigator.clipboard.writeText(buildTextSummary());
+    btn.textContent = '✅ copied'; btn.classList.add('copied');
+    setTimeout(()=>{ btn.textContent='📋 copy as text'; btn.classList.remove('copied'); }, 1500);
   }catch(e){ console.warn('Clipboard write failed', e); }
 });
 
@@ -619,26 +679,68 @@ $('exportCardBtn').addEventListener('click', async ()=>{
   finally{ btn.disabled = false; btn.textContent = original; }
 });
 
+// Formats a Unix timestamp (seconds) into a rough "how old is this wallet"
+// string — days for young wallets, months, then years for older ones.
+function formatWalletAge(timestamp){
+  const days = Math.floor((Date.now()/1000 - timestamp) / 86400);
+  if(days < 1) return 'funded today';
+  if(days === 1) return '1 day old';
+  if(days < 30) return `${days} days old`;
+  const months = Math.floor(days / 30.44);
+  if(months < 12) return `${months} month${months===1?'':'s'} old`;
+  const years = (days / 365.25);
+  return `${years.toFixed(years<10?1:0)} year${years>=1.05?'s':''} old`;
+}
+
+async function fetchFundedBy(addr){
+  const res = await fetch(`${PROXY}?type=funded-by&address=${addr}`);
+  if(res.status === 403) return { blocked: true };
+  if(!res.ok) return null;
+  const data = await res.json();
+  if(!data || !data.timestamp || !data.funder) return null;
+  return { funder: data.funder, timestamp: data.timestamp, funderName: data.funderName || null, funderType: data.funderType || null };
+}
+
 async function loadOriginTrace(address){
   const box = $('originTrace');
   box.style.display = 'none';
+  box.innerHTML = '';
   try{
-    const res = await fetch(`${PROXY}?type=funded-by&address=${address}`);
-    if(res.status === 403){
-      box.innerHTML = `🔒 Origin trace needs a paid Helius plan (free tier doesn't include /funded-by).`;
-      box.style.display = 'flex';
+    const first = await fetchFundedBy(address);
+    if(first && first.blocked){
+      box.innerHTML = `🔒 Wallet age needs a paid Helius plan (free tier doesn't include /funded-by).`;
+      box.style.display = 'block';
       return;
     }
-    if(!res.ok) return; // stay silent on other errors — this is a nice-to-have, not core data
-    const funding = await res.json();
-    if(!funding || (!funding.funder && !funding.funderName)) return;
+    if(!first) return; // stay silent — this is a nice-to-have, not core data
 
-    const who = funding.funderName || short(funding.funder || '');
-    const typeTag = funding.funderType ? `<span class="funder-type">${funding.funderType}</span>` : '';
-    const amt = funding.amount!=null ? ` with <b>${fmtNum(funding.amount,4)} SOL</b>` : '';
-    const when = funding.timestamp ? ` · ${timeAgo(funding.timestamp)}` : '';
-    box.innerHTML = `🔗 Traced to <b>${who}</b>${typeTag}${amt}${when}`;
-    box.style.display = 'flex';
+    const age = formatWalletAge(first.timestamp);
+    const date = new Date(first.timestamp * 1000).toLocaleDateString('en-US', { year:'numeric', month:'short', day:'numeric' });
+
+    // Walk the funding chain up to 3 hops back: who funded this wallet, who
+    // funded them, who funded them. Each hop is one extra /funded-by call,
+    // so this stays cheap even though it's now showing real addresses.
+    const chain = [{ addr: first.funder, timestamp: first.timestamp }];
+    let cursor = first.funder;
+    for(let hop=0; hop<2; hop++){
+      const next = await fetchFundedBy(cursor);
+      if(!next || next.blocked) break;
+      chain.push({ addr: next.funder, timestamp: next.timestamp });
+      cursor = next.funder;
+    }
+
+    const chainHtml = chain.map((hop, i)=>{
+      const hopDate = new Date(hop.timestamp * 1000).toLocaleDateString('en-US', { year:'numeric', month:'short', day:'numeric' });
+      return `<li><span class="hop-arrow">${i===0?'⤷ funded by':'⤷ which was funded by'}</span>
+        <a class="hop-addr tx-link" href="https://solscan.io/account/${hop.addr}" target="_blank" rel="noopener">${short(hop.addr)}</a>
+        <span class="hop-date">${hopDate}</span></li>`;
+    }).join('');
+
+    box.innerHTML = `
+      <div class="origin-summary">🕰️ Wallet age: <b>${age}</b> <span class="hop-date">· first received SOL ${date}</span></div>
+      <ul class="origin-chain">${chainHtml}</ul>
+    `;
+    box.style.display = 'block';
   }catch(e){
     console.warn('Origin trace failed', e); // silent failure — non-critical feature
   }
@@ -786,22 +888,71 @@ $('tokensRows').addEventListener('click', (e)=>{
 
 function renderTokenDetail(detail, mint){
   const matches = allTxs.filter(tx => (tx.balanceChanges||[]).some(c => (c.mint||'').trim() === mint.trim()));
-  if(!matches.length){
-    detail.innerHTML = `<div class="detail-empty">No recent transactions involving this token in the loaded history.</div>`;
-    return;
-  }
-  detail.innerHTML = matches.slice(0,10).map(tx=>{
-    const change = (tx.balanceChanges||[]).find(c => (c.mint||'').trim() === mint.trim());
-    const amt = change ? Math.abs(change.amount) : 0;
-    const dir = change && change.amount > 0 ? 'up' : 'down';
-    const sign = change && change.amount > 0 ? '+' : '-';
-    return `<div class="detail-tx">
-      <span>${tx.timestamp ? timeAgo(tx.timestamp) : '—'}</span>
-      <span class="amt ${dir}">${sign}${fmtNum(amt, amt<1?6:2)}</span>
-      <a class="tx-link" href="https://solscan.io/tx/${tx.signature}" target="_blank" rel="noopener">↗</a>
+  const txListHtml = !matches.length
+    ? `<div class="detail-empty">No recent transactions involving this token in the loaded history.</div>`
+    : matches.slice(0,10).map(tx=>{
+        const change = (tx.balanceChanges||[]).find(c => (c.mint||'').trim() === mint.trim());
+        const amt = change ? Math.abs(change.amount) : 0;
+        const dir = change && change.amount > 0 ? 'up' : 'down';
+        const sign = change && change.amount > 0 ? '+' : '-';
+        return `<div class="detail-tx">
+          <span>${tx.timestamp ? timeAgo(tx.timestamp) : '—'}</span>
+          <span class="amt ${dir}">${sign}${fmtNum(amt, amt<1?6:2)}</span>
+          <a class="tx-link" href="https://solscan.io/tx/${tx.signature}" target="_blank" rel="noopener">↗</a>
+        </div>`;
+      }).join('');
+
+  detail.innerHTML = txListHtml + `
+    <div class="detail-origin">
+      <button class="copy-btn trace-origin-btn" data-mint="${mint}">🔎 trace origin</button>
+      <div class="detail-origin-result"></div>
     </div>`;
-  }).join('');
 }
+
+// Fetches this wallet's transfer history and finds where a specific token
+// most recently arrived from. One on-demand call per click — never fired
+// automatically for every token, since Wallet API transfer lookups cost
+// more than the other routes here. Only checks the most recent page of
+// transfers, so for high-activity wallets this is "most recent known
+// inflow," not a guaranteed absolute-first receipt — labeled as such.
+$('tokensRows').addEventListener('click', async (e)=>{
+  const btn = e.target.closest('.trace-origin-btn');
+  if(!btn) return;
+  const mint = btn.dataset.mint;
+  const resultEl = btn.parentElement.querySelector('.detail-origin-result');
+  btn.disabled = true; btn.textContent = 'Tracing…';
+  try{
+    const res = await fetch(`${PROXY}?type=transfers&address=${currentAddress}`);
+    if(!res.ok){
+      resultEl.textContent = 'Could not fetch transfer history.';
+      return;
+    }
+    const data = await res.json();
+    const transfers = data.transfers || data.data || [];
+    const inbound = transfers
+      .filter(t => (t.mint||'').trim() === mint.trim() && t.direction === 'in')
+      .sort((a,b)=>(a.timestamp||0)-(b.timestamp||0));
+
+    if(!inbound.length){
+      resultEl.textContent = 'No incoming transfer of this token found in recent transfer history.';
+      return;
+    }
+    const earliest = inbound[0];
+    if(!earliest.counterparty){
+      resultEl.textContent = 'Minted directly to this wallet — no external sender.';
+      return;
+    }
+    const date = earliest.timestamp ? new Date(earliest.timestamp*1000).toLocaleDateString('en-US',{year:'numeric',month:'short',day:'numeric'}) : '—';
+    resultEl.innerHTML = `Most recent known inflow from
+      <a class="tx-link" href="https://solscan.io/account/${earliest.counterparty}" target="_blank" rel="noopener">${short(earliest.counterparty)}</a>
+      <span class="hop-date">· ${date}</span>`;
+  }catch(err){
+    resultEl.textContent = 'Trace failed.';
+    console.warn('Token origin trace failed', err);
+  }finally{
+    btn.disabled = false; btn.textContent = '🔎 trace origin';
+  }
+});
 
 $('loadMoreTokensBtn').addEventListener('click', async ()=>{
   const btn = $('loadMoreTokensBtn');
