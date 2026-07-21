@@ -116,6 +116,12 @@ async function handleHeliusProxy(request, env){
       // as-is so the frontend can show a clear message instead of a generic error.
       heliusUrl = `https://api.helius.xyz/v1/wallet/${address}/funded-by?api-key=${HELIUS_API_KEY}`;
       options = { method: 'GET' };
+    } else if(type === 'transfers'){
+      // Wallet API's transfers endpoint gives real sender/recipient
+      // (counterparty) per transfer — much cheaper than parsing raw
+      // transactions one at a time via the Enhanced Transaction API.
+      heliusUrl = `https://api.helius.xyz/v1/wallet/${address}/transfers?api-key=${HELIUS_API_KEY}&limit=100`;
+      options = { method: 'GET' };
     } else if(type === 'nfts'){
       heliusUrl = `https://mainnet.helius-rpc.com/?api-key=${HELIUS_API_KEY}`;
       options = {
