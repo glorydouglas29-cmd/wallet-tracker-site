@@ -253,6 +253,19 @@
   .tok-detail .detail-empty{font-family:'JetBrains Mono',monospace; font-size:11px; color:var(--muted); padding:6px 0;}
   .detail-origin{margin-top:8px; padding-top:8px; border-top:1px dashed var(--line);}
   .detail-origin-result{font-family:'JetBrains Mono',monospace; font-size:11px; color:var(--muted); margin-top:6px; line-height:1.5;}
+
+  .sender-check-panel{margin-bottom:24px;}
+  .sender-check-panel .search-row input{min-width:0;}
+  .sender-result{font-family:'JetBrains Mono',monospace; font-size:12px; margin-top:12px;}
+  .sender-result .verdict{font-weight:600; margin-bottom:8px;}
+  .sender-result .verdict.yes{color:var(--up);}
+  .sender-result .verdict.no{color:var(--muted);}
+  .sender-hit{
+    display:flex; justify-content:space-between; align-items:center; gap:10px;
+    padding:8px 0; border-bottom:1px dashed var(--line);
+  }
+  .sender-hit:last-child{border-bottom:none;}
+  .sender-hit .amt{color:var(--paper);}
   .skel{background:linear-gradient(90deg,var(--surface-2) 25%,var(--line) 50%,var(--surface-2) 75%); background-size:200% 100%; animation:shine 1.4s infinite; border-radius:6px; height:14px;}
   @keyframes shine{from{background-position:200% 0;} to{background-position:-200% 0;}}
 
@@ -345,6 +358,18 @@
     </div>
 
     <div class="origin-trace" id="originTrace" style="display:none;"></div>
+
+    <div class="panel sender-check-panel" id="senderCheckPanel" style="display:none;">
+      <div class="trend-head">
+        <span class="label">Check a sender · has this wallet sent tokens here?</span>
+      </div>
+      <div class="search-row" style="margin-top:8px;">
+        <input type="text" id="senderCheckAddr" placeholder="Sender wallet address…">
+        <input type="text" id="senderCheckMint" placeholder="Token mint or symbol (optional — leave blank for any)" style="min-width:200px;">
+        <button class="ghost" id="senderCheckBtn">Check</button>
+      </div>
+      <div id="senderCheckResult"></div>
+    </div>
 
     <div class="panel trend-panel" id="trendPanel" style="display:none;">
       <div class="trend-head">
@@ -536,6 +561,9 @@ async function lookupWallet(){
   $('solBal').textContent='…'; $('totalUsd').textContent='…'; $('tokenCount').textContent='…'; $('nftCount').textContent='…';
   [$('solBal'), $('totalUsd'), $('tokenCount'), $('nftCount')].forEach(el=>{ el.dataset.rawValue = '0'; });
   $('personaBadge').style.display = 'none';
+  $('senderCheckPanel').style.display = '';
+  $('senderCheckAddr').value = ''; $('senderCheckMint').value = '';
+  $('senderCheckResult').innerHTML = '';
   $('originTrace').style.display = 'none';
 
   try{
@@ -891,6 +919,80 @@ function renderTokenDetail(detail, mint){
 // within the most recent page of that wallet's transfer history. Returns
 // null if none found, or {counterparty, timestamp} (counterparty may be
 // null if the token was minted directly rather than transferred in).
+// Deterministic "did this wallet send X here?" check — filters the currently
+// scanned wallet's transfer history for matches from a given sender, optionally
+// narrowed by token (mint address or symbol, case-insensitive). No AI involved:
+// this is a plain data filter, so results are exact, not inferred. Only checks
+// the most recent page of transfers (same limitation as the rest of the
+// transfer-based features), so this answers "in recent history," not
+// "ever, across all time."
+$('senderCheckBtn').addEventListener('click', async ()=>{
+  const senderRaw = $('senderCheckAddr').value.trim();
+  const mintFilterRaw = $('senderCheckMint').value.trim();
+  const resultEl = $('senderCheckResult');
+
+  if(!senderRaw){
+    resultEl.innerHTML = `<div class="sender-result"><span class="verdict no">Enter a sender wallet address first.</span></div>`;
+    return;
+  }
+  if(!/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(senderRaw)){
+    resultEl.innerHTML = `<div class="sender-result"><span class="verdict no">That doesn't look like a valid Solana address.</span></div>`;
+    return;
+  }
+
+  const btn = $('senderCheckBtn');
+  btn.disabled = true; btn.textContent = 'Checking…';
+  resultEl.innerHTML = '';
+
+  try{
+    const res = await fetch(`${PROXY}?type=transfers&address=${currentAddress}`);
+    if(!res.ok){
+      resultEl.innerHTML = `<div class="sender-result"><span class="verdict no">Could not fetch transfer history.</span></div>`;
+      return;
+    }
+    const data = await res.json();
+    const transfers = data.transfers || data.data || [];
+
+    const mintFilter = mintFilterRaw.toLowerCase();
+    let hits = transfers.filter(t =>
+      t.direction === 'in' &&
+      (t.counterparty || '').trim() === senderRaw
+    );
+    if(mintFilter){
+      hits = hits.filter(t => {
+        const mint = (t.mint||'').toLowerCase();
+        const symbol = (t.symbol || t.tokenSymbol || '').toLowerCase();
+        return mint === mintFilter || symbol === mintFilter || mint.startsWith(mintFilter);
+      });
+    }
+    hits.sort((a,b)=>(b.timestamp||0)-(a.timestamp||0));
+
+    if(!hits.length){
+      resultEl.innerHTML = `<div class="sender-result"><span class="verdict no">✕ No matching transfers found from ${short(senderRaw)} in recent transfer history.</span></div>`;
+      return;
+    }
+
+    const rows = hits.map(t=>{
+      const isSol = (t.mint||'').trim() === SOL_MINT;
+      const label = isSol ? 'SOL' : (t.symbol || t.tokenSymbol || short(t.mint||''));
+      const amt = fmtNum(Math.abs(t.amount||0), Math.abs(t.amount||0)<1?6:2);
+      const date = t.timestamp ? new Date(t.timestamp*1000).toLocaleDateString('en-US',{year:'numeric',month:'short',day:'numeric'}) : '—';
+      const link = t.signature ? `<a class="tx-link" href="https://solscan.io/tx/${t.signature}" target="_blank" rel="noopener">↗</a>` : '';
+      return `<div class="sender-hit"><span class="amt">+${amt} ${label}</span><span class="hop-date">${date}</span>${link}</div>`;
+    }).join('');
+
+    resultEl.innerHTML = `<div class="sender-result">
+      <div class="verdict yes">✓ Yes — ${hits.length} matching transfer${hits.length===1?'':'s'} found</div>
+      ${rows}
+    </div>`;
+  }catch(err){
+    resultEl.innerHTML = `<div class="sender-result"><span class="verdict no">Check failed.</span></div>`;
+    console.warn('Sender check failed', err);
+  }finally{
+    btn.disabled = false; btn.textContent = 'Check';
+  }
+});
+
 async function fetchEarliestInboundTransfer(addr, mint){
   const res = await fetch(`${PROXY}?type=transfers&address=${addr}`);
   if(!res.ok) return null;
@@ -1060,6 +1162,8 @@ async function loadNfts(address){
 
 $('lookupBtn').addEventListener('click', lookupWallet);
 $('walletInput').addEventListener('keydown', e=>{ if(e.key==='Enter') lookupWallet(); });
+$('senderCheckAddr').addEventListener('keydown', e=>{ if(e.key==='Enter') $('senderCheckBtn').click(); });
+$('senderCheckMint').addEventListener('keydown', e=>{ if(e.key==='Enter') $('senderCheckBtn').click(); });
 
 function renderTrendChart(currentSolBalance, txs){
   const panel = $('trendPanel');
