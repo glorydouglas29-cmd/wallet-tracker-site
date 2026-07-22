@@ -717,29 +717,7 @@ async function loadOriginTrace(address){
     const age = formatWalletAge(first.timestamp);
     const date = new Date(first.timestamp * 1000).toLocaleDateString('en-US', { year:'numeric', month:'short', day:'numeric' });
 
-    // Walk the funding chain up to 3 hops back: who funded this wallet, who
-    // funded them, who funded them. Each hop is one extra /funded-by call,
-    // so this stays cheap even though it's now showing real addresses.
-    const chain = [{ addr: first.funder, timestamp: first.timestamp }];
-    let cursor = first.funder;
-    for(let hop=0; hop<2; hop++){
-      const next = await fetchFundedBy(cursor);
-      if(!next || next.blocked) break;
-      chain.push({ addr: next.funder, timestamp: next.timestamp });
-      cursor = next.funder;
-    }
-
-    const chainHtml = chain.map((hop, i)=>{
-      const hopDate = new Date(hop.timestamp * 1000).toLocaleDateString('en-US', { year:'numeric', month:'short', day:'numeric' });
-      return `<li><span class="hop-arrow">${i===0?'⤷ funded by':'⤷ which was funded by'}</span>
-        <a class="hop-addr tx-link" href="https://solscan.io/account/${hop.addr}" target="_blank" rel="noopener">${short(hop.addr)}</a>
-        <span class="hop-date">${hopDate}</span></li>`;
-    }).join('');
-
-    box.innerHTML = `
-      <div class="origin-summary">🕰️ Wallet age: <b>${age}</b> <span class="hop-date">· first received SOL ${date}</span></div>
-      <ul class="origin-chain">${chainHtml}</ul>
-    `;
+    box.innerHTML = `<div class="origin-summary">🕰️ Wallet age: <b>${age}</b> <span class="hop-date">· first received SOL ${date}</span></div>`;
     box.style.display = 'block';
   }catch(e){
     console.warn('Origin trace failed', e); // silent failure — non-critical feature
@@ -909,43 +887,63 @@ function renderTokenDetail(detail, mint){
     </div>`;
 }
 
-// Fetches this wallet's transfer history and finds where a specific token
-// most recently arrived from. One on-demand call per click — never fired
-// automatically for every token, since Wallet API transfer lookups cost
-// more than the other routes here. Only checks the most recent page of
-// transfers, so for high-activity wallets this is "most recent known
-// inflow," not a guaranteed absolute-first receipt — labeled as such.
+// Helper: finds the earliest known incoming transfer of `mint` into `addr`
+// within the most recent page of that wallet's transfer history. Returns
+// null if none found, or {counterparty, timestamp} (counterparty may be
+// null if the token was minted directly rather than transferred in).
+async function fetchEarliestInboundTransfer(addr, mint){
+  const res = await fetch(`${PROXY}?type=transfers&address=${addr}`);
+  if(!res.ok) return null;
+  const data = await res.json();
+  const transfers = data.transfers || data.data || [];
+  const inbound = transfers
+    .filter(t => (t.mint||'').trim() === mint.trim() && t.direction === 'in')
+    .sort((a,b)=>(a.timestamp||0)-(b.timestamp||0));
+  return inbound.length ? inbound[0] : null;
+}
+
+// Traces a token's transfer chain up to 3 hops back: who sent it to this
+// wallet, who sent it to them, who sent it to them. Each hop is one more
+// /transfers call (to a different wallet each time), so this is pricier
+// than most features here — it only ever runs on an explicit click, never
+// automatically for a whole token list. Each hop only checks the most
+// recent page of that wallet's transfers, so this is "most recent known
+// chain," not a guaranteed absolute-first-ever receipt — labeled as such.
 $('tokensRows').addEventListener('click', async (e)=>{
   const btn = e.target.closest('.trace-origin-btn');
   if(!btn) return;
   const mint = btn.dataset.mint;
   const resultEl = btn.parentElement.querySelector('.detail-origin-result');
   btn.disabled = true; btn.textContent = 'Tracing…';
+  resultEl.innerHTML = '';
   try{
-    const res = await fetch(`${PROXY}?type=transfers&address=${currentAddress}`);
-    if(!res.ok){
-      resultEl.textContent = 'Could not fetch transfer history.';
-      return;
+    const chain = [];
+    let cursor = currentAddress;
+    for(let hop=0; hop<3; hop++){
+      const transfer = await fetchEarliestInboundTransfer(cursor, mint);
+      if(!transfer) break;
+      chain.push({ counterparty: transfer.counterparty || null, timestamp: transfer.timestamp });
+      if(!transfer.counterparty) break; // minted directly — chain ends here, nowhere further to trace
+      cursor = transfer.counterparty;
     }
-    const data = await res.json();
-    const transfers = data.transfers || data.data || [];
-    const inbound = transfers
-      .filter(t => (t.mint||'').trim() === mint.trim() && t.direction === 'in')
-      .sort((a,b)=>(a.timestamp||0)-(b.timestamp||0));
 
-    if(!inbound.length){
+    if(!chain.length){
       resultEl.textContent = 'No incoming transfer of this token found in recent transfer history.';
       return;
     }
-    const earliest = inbound[0];
-    if(!earliest.counterparty){
-      resultEl.textContent = 'Minted directly to this wallet — no external sender.';
-      return;
-    }
-    const date = earliest.timestamp ? new Date(earliest.timestamp*1000).toLocaleDateString('en-US',{year:'numeric',month:'short',day:'numeric'}) : '—';
-    resultEl.innerHTML = `Most recent known inflow from
-      <a class="tx-link" href="https://solscan.io/account/${earliest.counterparty}" target="_blank" rel="noopener">${short(earliest.counterparty)}</a>
-      <span class="hop-date">· ${date}</span>`;
+
+    const rows = chain.map((hop, i)=>{
+      const date = hop.timestamp ? new Date(hop.timestamp*1000).toLocaleDateString('en-US',{year:'numeric',month:'short',day:'numeric'}) : '—';
+      if(!hop.counterparty){
+        return `<li><span class="hop-arrow">${i===0?'⤷ minted directly to this wallet':'⤷ minted directly, no earlier sender'}</span>
+          <span class="hop-date">· ${date}</span></li>`;
+      }
+      return `<li><span class="hop-arrow">${i===0?'⤷ received from':'⤷ which received it from'}</span>
+        <a class="hop-addr tx-link" href="https://solscan.io/account/${hop.counterparty}" target="_blank" rel="noopener">${short(hop.counterparty)}</a>
+        <span class="hop-date">${date}</span></li>`;
+    }).join('');
+
+    resultEl.innerHTML = `<ul class="origin-chain">${rows}</ul>`;
   }catch(err){
     resultEl.textContent = 'Trace failed.';
     console.warn('Token origin trace failed', err);
