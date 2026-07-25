@@ -196,16 +196,17 @@
 
   /* Ledger rows (tokens) */
   .ledger-row{
-    display:grid; grid-template-columns:36px 1fr auto auto; gap:12px; align-items:center;
+    display:grid; grid-template-columns:36px minmax(0,1fr) auto auto; gap:12px; align-items:center;
     padding:12px 8px; border-bottom:1px solid var(--line); transition:background 0.15s ease;
   }
   .ledger-row:hover{background:var(--surface-2);}
   .ledger-row:last-child{border-bottom:none;}
   .tok-icon{width:32px; height:32px; border-radius:50%; background:var(--surface-2); border:1px solid var(--line); object-fit:cover;}
-  .tok-name{font-family:'Space Grotesk',sans-serif; font-weight:600; font-size:14px;}
-  .tok-mint{font-family:'JetBrains Mono',monospace; font-size:10.5px; color:var(--muted);}
-  .tok-amt{font-family:'JetBrains Mono',monospace; font-size:13px; text-align:right;}
-  .tok-usd{font-family:'JetBrains Mono',monospace; font-size:12px; color:var(--muted); text-align:right; min-width:80px;}
+  .tok-info{min-width:0;}
+  .tok-name{font-family:'Space Grotesk',sans-serif; font-weight:600; font-size:14px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
+  .tok-mint{font-family:'JetBrains Mono',monospace; font-size:10.5px; color:var(--muted); overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
+  .tok-amt{font-family:'JetBrains Mono',monospace; font-size:13px; text-align:right; white-space:nowrap;}
+  .tok-usd{font-family:'JetBrains Mono',monospace; font-size:12px; color:var(--muted); text-align:right; min-width:80px; white-space:nowrap;}
 
   /* Transactions */
   .tx-row{
@@ -301,7 +302,7 @@
     .trend-svg{height:64px;}
     .trend-head .label{font-size:9px;}
 
-    .ledger-row{grid-template-columns:28px 1fr auto; gap:8px; padding:11px 4px;}
+    .ledger-row{grid-template-columns:28px minmax(0,1fr) auto; gap:8px; padding:11px 4px;}
     .tok-usd{display:none;}
     .tok-name{font-size:13px;}
     .tok-mint{font-size:9.5px;}
@@ -854,7 +855,7 @@ async function loadBalancesAndSol(address, page=1){
   if(sol){
     html += `<div class="ledger-row clickable" data-mint="${SOL_MINT}" data-symbol="SOL">
       <img class="tok-icon" src="https://cryptologos.cc/logos/solana-sol-logo.png" onerror="this.style.display='none'">
-      <div><div class="tok-name">Solana <span class="caret">▸</span></div><div class="tok-mint">SOL</div></div>
+      <div class="tok-info"><div class="tok-name">Solana <span class="caret">▸</span></div><div class="tok-mint">SOL</div></div>
       <div class="tok-amt">${fmtNum(solAmount)}</div>
       <div class="tok-usd">${fmtUsd(solUsd)}</div>
     </div>
@@ -863,7 +864,7 @@ async function loadBalancesAndSol(address, page=1){
   html += tokens.map(t=>`
     <div class="ledger-row clickable" data-mint="${t.mint}" data-symbol="${t.symbol||''}">
       <img class="tok-icon" src="${t.logoUri||''}" onerror="this.style.display='none'">
-      <div><div class="tok-name">${t.symbol || t.name || short(t.mint)} <span class="caret">▸</span></div><div class="tok-mint">${t.mint}</div></div>
+      <div class="tok-info"><div class="tok-name">${t.symbol || t.name || short(t.mint)} <span class="caret">▸</span></div><div class="tok-mint">${t.mint}</div></div>
       <div class="tok-amt">${fmtNum(t.balance, t.balance<1?6:2)}</div>
       <div class="tok-usd" ${t._viaJupiter?'title="Priced via Jupiter"':''}>${t.usdValue!=null ? fmtUsd(t.usdValue) + (t._viaJupiter?' ˙':'') : '—'}</div>
     </div>
