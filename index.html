@@ -204,7 +204,9 @@
   .tok-icon{width:32px; height:32px; border-radius:50%; background:var(--surface-2); border:1px solid var(--line); object-fit:cover;}
   .tok-info{min-width:0;}
   .tok-name{font-family:'Space Grotesk',sans-serif; font-weight:600; font-size:14px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
-  .tok-mint{font-family:'JetBrains Mono',monospace; font-size:10.5px; color:var(--muted); overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
+  .tok-mint{font-family:'JetBrains Mono',monospace; font-size:10.5px; color:var(--muted); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; cursor:pointer; transition:color 0.15s ease;}
+  .tok-mint:hover{color:var(--ink);}
+  .tok-mint.copied-flash{color:var(--up) !important;}
   .tok-amt{font-family:'JetBrains Mono',monospace; font-size:13px; text-align:right; white-space:nowrap;}
   .tok-usd{font-family:'JetBrains Mono',monospace; font-size:12px; color:var(--muted); text-align:right; min-width:80px; white-space:nowrap;}
 
@@ -877,7 +879,24 @@ async function loadBalancesAndSol(address, page=1){
 
 // Event delegation: clicking a token row expands/collapses its detail panel,
 // listing recent transactions (from already-loaded history) that touched that mint.
-$('tokensRows').addEventListener('click', (e)=>{
+// Clicking the mint address itself copies it instead of toggling the row.
+$('tokensRows').addEventListener('click', async (e)=>{
+  const mintEl = e.target.closest('.tok-mint');
+  if(mintEl){
+    const row = mintEl.closest('.ledger-row');
+    const mint = row?.dataset.mint;
+    if(mint){
+      try{
+        await navigator.clipboard.writeText(mint);
+        const original = mintEl.textContent;
+        mintEl.textContent = 'Copied ✓';
+        mintEl.classList.add('copied-flash');
+        setTimeout(()=>{ mintEl.textContent = original; mintEl.classList.remove('copied-flash'); }, 1200);
+      }catch(err){ console.warn('Copy failed', err); }
+    }
+    return;
+  }
+
   const row = e.target.closest('.ledger-row.clickable');
   if(!row) return;
   const mint = row.dataset.mint;
