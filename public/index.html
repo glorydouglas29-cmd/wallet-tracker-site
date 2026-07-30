@@ -255,7 +255,10 @@
   .tok-detail .detail-tx .amt.down{color:var(--down);}
   .tok-detail .detail-empty{font-family:'JetBrains Mono',monospace; font-size:11px; color:var(--muted); padding:6px 0;}
   .detail-origin{margin-top:8px; padding-top:8px; border-top:1px dashed var(--line);}
+  .detail-btn-row{display:flex; gap:8px; flex-wrap:wrap;}
   .detail-origin-result{font-family:'JetBrains Mono',monospace; font-size:11px; color:var(--muted); margin-top:6px; line-height:1.5;}
+  .detail-swap-result{font-family:'JetBrains Mono',monospace; font-size:11px; color:var(--muted); margin-top:6px;}
+  .detail-swap-result .sender-hit{padding:6px 0; font-size:11px;}
 
   .sender-check-panel{margin-bottom:24px;}
   .sender-check-panel .search-row input{min-width:0;}
@@ -931,8 +934,12 @@ function renderTokenDetail(detail, mint){
 
   detail.innerHTML = txListHtml + `
     <div class="detail-origin">
-      <button class="copy-btn trace-origin-btn" data-mint="${mint}">🔎 trace origin</button>
+      <div class="detail-btn-row">
+        <button class="copy-btn trace-origin-btn" data-mint="${mint}">🔎 trace origin</button>
+        <button class="copy-btn swap-history-btn" data-mint="${mint}">📊 swap history</button>
+      </div>
       <div class="detail-origin-result"></div>
+      <div class="detail-swap-result"></div>
     </div>`;
 }
 
@@ -1036,7 +1043,7 @@ $('tokensRows').addEventListener('click', async (e)=>{
   const btn = e.target.closest('.trace-origin-btn');
   if(!btn) return;
   const mint = btn.dataset.mint;
-  const resultEl = btn.parentElement.querySelector('.detail-origin-result');
+  const resultEl = btn.closest('.detail-origin').querySelector('.detail-origin-result');
   btn.disabled = true; btn.textContent = 'Tracing…';
   resultEl.innerHTML = '';
   try{
@@ -1072,6 +1079,60 @@ $('tokensRows').addEventListener('click', async (e)=>{
     console.warn('Token origin trace failed', err);
   }finally{
     btn.disabled = false; btn.textContent = '🔎 trace origin';
+  }
+});
+
+// Swap/transfer history for a single token: pulls every in+out transfer of
+// this specific mint from the wallet's transfer history and lists them
+// chronologically. Uses the same /transfers data as trace-origin and the
+// sender-check panel, so no new backend route needed. Labeled "transfer"
+// rather than strictly "swap" since the underlying data covers any transfer
+// of the token (a plain send/receive looks identical to a DEX swap leg from
+// this endpoint's point of view) — still the clearest available picture of
+// a token's in/out activity for this wallet.
+$('tokensRows').addEventListener('click', async (e)=>{
+  const btn = e.target.closest('.swap-history-btn');
+  if(!btn) return;
+  const mint = btn.dataset.mint;
+  const resultEl = btn.closest('.detail-origin').querySelector('.detail-swap-result');
+  btn.disabled = true; btn.textContent = 'Loading…';
+  resultEl.innerHTML = '';
+  try{
+    const res = await fetch(`${PROXY}?type=transfers&address=${currentAddress}`);
+    if(!res.ok){
+      resultEl.textContent = 'Could not fetch transfer history.';
+      return;
+    }
+    const data = await res.json();
+    const transfers = data.transfers || data.data || [];
+    const hits = transfers
+      .filter(t => (t.mint||'').trim() === mint.trim())
+      .sort((a,b)=>(b.timestamp||0)-(a.timestamp||0));
+
+    if(!hits.length){
+      resultEl.textContent = 'No transfer activity for this token found in recent transfer history.';
+      return;
+    }
+
+    const rows = hits.slice(0,15).map(t=>{
+      const isIn = t.direction === 'in';
+      const amt = fmtNum(Math.abs(t.amount||0), Math.abs(t.amount||0)<1?6:2);
+      const date = t.timestamp ? new Date(t.timestamp*1000).toLocaleDateString('en-US',{year:'numeric',month:'short',day:'numeric'}) : '—';
+      const cp = t.counterparty ? short(t.counterparty) : '—';
+      const link = t.signature ? `<a class="tx-link" href="https://solscan.io/tx/${t.signature}" target="_blank" rel="noopener">↗</a>` : '';
+      return `<div class="sender-hit">
+        <span class="amt ${isIn?'up':'down'}">${isIn?'+':'-'}${amt}</span>
+        <span class="hop-date">${isIn?'from':'to'} ${cp} · ${date}</span>
+        ${link}
+      </div>`;
+    }).join('');
+
+    resultEl.innerHTML = rows;
+  }catch(err){
+    resultEl.textContent = 'Failed to load swap history.';
+    console.warn('Swap history failed', err);
+  }finally{
+    btn.disabled = false; btn.textContent = '📊 swap history';
   }
 });
 
