@@ -378,6 +378,17 @@
       <div id="senderCheckResult"></div>
     </div>
 
+    <div class="panel sender-check-panel" id="buyCheckPanel" style="display:none;">
+      <div class="trend-head">
+        <span class="label">Check a token · has this wallet ever bought it?</span>
+      </div>
+      <div class="search-row" style="margin-top:8px;">
+        <input type="text" id="buyCheckMint" placeholder="Token mint or symbol…">
+        <button class="ghost" id="buyCheckBtn">Check</button>
+      </div>
+      <div id="buyCheckResult"></div>
+    </div>
+
     <div class="panel trend-panel" id="trendPanel" style="display:none;">
       <div class="trend-head">
         <span class="label">SOL balance trend · recent activity</span>
@@ -425,6 +436,7 @@ const statusLine = $('statusLine');
 const SOL_MINT = 'So11111111111111111111111111111111111111112';
 let recentLookups = [];
 let currentAddress = '';
+let tokenMetaMap = {}; // mint -> {symbol, name} — built from loaded balances, used to show real names in transaction/swap history instead of raw addresses
 let tokenPage = 1, tokenHasMore = false;
 let txCursor = null, txHasMore = false;
 let allTxs = []; // accumulated across loaded transaction pages, used for trend chart + token click detail
@@ -553,7 +565,7 @@ async function lookupWallet(){
 
   currentAddress = address;
   tokenPage = 1; tokenHasMore = false;
-  txCursor = null; txHasMore = false; allTxs = [];
+  txCursor = null; txHasMore = false; allTxs = []; tokenMetaMap = {};
   $('tokensLoadMoreRow').style.display = 'none';
   $('txnsLoadMoreRow').style.display = 'none';
 
@@ -571,6 +583,9 @@ async function lookupWallet(){
   $('senderCheckPanel').style.display = '';
   $('senderCheckAddr').value = ''; $('senderCheckMint').value = '';
   $('senderCheckResult').innerHTML = '';
+  $('buyCheckPanel').style.display = '';
+  $('buyCheckMint').value = '';
+  $('buyCheckResult').innerHTML = '';
   $('originTrace').style.display = 'none';
 
   try{
@@ -808,6 +823,12 @@ async function loadBalancesAndSol(address, page=1){
   const sol = page===1 ? balances.find(isSolEntry) : null;
   const tokens = balances.filter(b => !isSolEntry(b));
 
+  balances.forEach(b=>{
+    if(b.mint && (b.symbol || b.name)){
+      tokenMetaMap[b.mint.trim()] = { symbol: b.symbol || null, name: b.name || null };
+    }
+  });
+
   // Helius doesn't have pricing for every token (thin-liquidity memecoins
   // especially). Fill gaps using Jupiter's price API, which pulls from a
   // broader set of DEX sources.
@@ -1002,7 +1023,7 @@ $('senderCheckBtn').addEventListener('click', async ()=>{
 
     const rows = hits.map(t=>{
       const isSol = (t.mint||'').trim() === SOL_MINT;
-      const label = isSol ? 'SOL' : (t.symbol || t.tokenSymbol || short(t.mint||''));
+      const label = isSol ? 'SOL' : (t.symbol || t.tokenSymbol || tokenMetaMap[(t.mint||'').trim()]?.symbol || short(t.mint||''));
       const amt = fmtNum(Math.abs(t.amount||0), Math.abs(t.amount||0)<1?6:2);
       const date = t.timestamp ? new Date(t.timestamp*1000).toLocaleDateString('en-US',{year:'numeric',month:'short',day:'numeric'}) : '—';
       const link = t.signature ? `<a class="tx-link" href="https://solscan.io/tx/${t.signature}" target="_blank" rel="noopener">↗</a>` : '';
@@ -1019,6 +1040,57 @@ $('senderCheckBtn').addEventListener('click', async ()=>{
   }finally{
     btn.disabled = false; btn.textContent = 'Check';
   }
+});
+
+// Deterministic "has this wallet ever bought X" check — searches the
+// already-loaded transaction history for swaps where the token was the
+// asset received (a "buy" leg). Matches by exact mint or case-insensitive
+// symbol (via tokenMetaMap, built from held-token balances). Same coverage
+// caveat as the rest of this tool: bounded by how much transaction history
+// has been loaded, not the wallet's full lifetime.
+function matchesTokenQuery(mint, query){
+  const trimmedMint = (mint||'').trim();
+  if(trimmedMint === query) return true; // exact mint match
+  const meta = tokenMetaMap[trimmedMint];
+  return !!(meta?.symbol && meta.symbol.toLowerCase() === query.toLowerCase());
+}
+
+$('buyCheckBtn').addEventListener('click', ()=>{
+  const query = $('buyCheckMint').value.trim();
+  const resultEl = $('buyCheckResult');
+
+  if(!query){
+    resultEl.innerHTML = `<div class="sender-result"><span class="verdict no">Enter a token mint or symbol.</span></div>`;
+    return;
+  }
+
+  const hits = allTxs.filter(tx =>
+    isSwapTx(tx) && nonZeroChanges(tx).some(c => c.amount > 0 && matchesTokenQuery(c.mint, query))
+  );
+
+  if(!hits.length){
+    resultEl.innerHTML = `<div class="sender-result">
+      <span class="verdict no">✕ No buy swaps for "${query}" found in loaded transaction history.</span>
+      <div class="hop-date" style="margin-top:6px;">Coverage is limited to what's loaded on the Transactions tab — try "Load more transactions" there for deeper history.</div>
+    </div>`;
+    return;
+  }
+
+  const rows = hits.slice(0,15).map(tx=>{
+    const changes = nonZeroChanges(tx);
+    const date = tx.timestamp ? timeAgo(tx.timestamp) : '—';
+    const link = tx.signature ? `<a class="tx-link" href="https://solscan.io/tx/${tx.signature}" target="_blank" rel="noopener">↗</a>` : '';
+    return `<div class="sender-hit">
+      <span class="amt">${describeChanges(changes)}</span>
+      <span class="hop-date">${date}</span>
+      ${link}
+    </div>`;
+  }).join('');
+
+  resultEl.innerHTML = `<div class="sender-result">
+    <div class="verdict yes">✓ Yes — ${hits.length} buy swap${hits.length===1?'':'s'} found</div>
+    ${rows}
+  </div>`;
 });
 
 async function fetchEarliestInboundTransfer(addr, mint){
@@ -1082,58 +1154,42 @@ $('tokensRows').addEventListener('click', async (e)=>{
   }
 });
 
-// Swap/transfer history for a single token: pulls every in+out transfer of
-// this specific mint from the wallet's transfer history and lists them
-// chronologically. Uses the same /transfers data as trace-origin and the
-// sender-check panel, so no new backend route needed. Labeled "transfer"
-// rather than strictly "swap" since the underlying data covers any transfer
-// of the token (a plain send/receive looks identical to a DEX swap leg from
-// this endpoint's point of view) — still the clearest available picture of
-// a token's in/out activity for this wallet.
-$('tokensRows').addEventListener('click', async (e)=>{
+// Swap history for a single token: filters the wallet's already-loaded
+// transaction history (allTxs) for genuine swaps involving this mint — a
+// swap here means 2+ non-zero balance changes in the same transaction (one
+// asset out, another in), same detection used in the main Transactions tab.
+// Deliberately does NOT use the /transfers endpoint (unlike trace-origin) —
+// that data has no way to distinguish a swap from a plain send/receive, so
+// using it here would mix transfers into what should be swaps-only.
+// Coverage is bounded by how much transaction history has been loaded —
+// use "Load more transactions" first for deeper coverage on quiet tokens.
+$('tokensRows').addEventListener('click', (e)=>{
   const btn = e.target.closest('.swap-history-btn');
   if(!btn) return;
   const mint = btn.dataset.mint;
   const resultEl = btn.closest('.detail-origin').querySelector('.detail-swap-result');
-  btn.disabled = true; btn.textContent = 'Loading…';
-  resultEl.innerHTML = '';
-  try{
-    const res = await fetch(`${PROXY}?type=transfers&address=${currentAddress}`);
-    if(!res.ok){
-      resultEl.textContent = 'Could not fetch transfer history.';
-      return;
-    }
-    const data = await res.json();
-    const transfers = data.transfers || data.data || [];
-    const hits = transfers
-      .filter(t => (t.mint||'').trim() === mint.trim())
-      .sort((a,b)=>(b.timestamp||0)-(a.timestamp||0));
 
-    if(!hits.length){
-      resultEl.textContent = 'No transfer activity for this token found in recent transfer history.';
-      return;
-    }
+  const hits = allTxs.filter(tx =>
+    isSwapTx(tx) && nonZeroChanges(tx).some(c => (c.mint||'').trim() === mint.trim())
+  );
 
-    const rows = hits.slice(0,15).map(t=>{
-      const isIn = t.direction === 'in';
-      const amt = fmtNum(Math.abs(t.amount||0), Math.abs(t.amount||0)<1?6:2);
-      const date = t.timestamp ? new Date(t.timestamp*1000).toLocaleDateString('en-US',{year:'numeric',month:'short',day:'numeric'}) : '—';
-      const cp = t.counterparty ? short(t.counterparty) : '—';
-      const link = t.signature ? `<a class="tx-link" href="https://solscan.io/tx/${t.signature}" target="_blank" rel="noopener">↗</a>` : '';
-      return `<div class="sender-hit">
-        <span class="amt ${isIn?'up':'down'}">${isIn?'+':'-'}${amt}</span>
-        <span class="hop-date">${isIn?'from':'to'} ${cp} · ${date}</span>
-        ${link}
-      </div>`;
-    }).join('');
-
-    resultEl.innerHTML = rows;
-  }catch(err){
-    resultEl.textContent = 'Failed to load swap history.';
-    console.warn('Swap history failed', err);
-  }finally{
-    btn.disabled = false; btn.textContent = '📊 swap history';
+  if(!hits.length){
+    resultEl.innerHTML = `<div class="detail-empty">No swaps involving this token found in loaded transaction history. Try "Load more transactions" on the Transactions tab for deeper coverage.</div>`;
+    return;
   }
+
+  const rows = hits.slice(0,15).map(tx=>{
+    const changes = nonZeroChanges(tx);
+    const date = tx.timestamp ? timeAgo(tx.timestamp) : '—';
+    const link = tx.signature ? `<a class="tx-link" href="https://solscan.io/tx/${tx.signature}" target="_blank" rel="noopener">↗</a>` : '';
+    return `<div class="sender-hit">
+      <span class="amt">${describeChanges(changes)}</span>
+      <span class="hop-date">${date}</span>
+      ${link}
+    </div>`;
+  }).join('');
+
+  resultEl.innerHTML = rows;
 });
 
 $('loadMoreTokensBtn').addEventListener('click', async ()=>{
@@ -1150,6 +1206,28 @@ $('loadMoreTokensBtn').addEventListener('click', async ()=>{
   }
 });
 
+// Shared swap detection: a transaction with 2+ non-zero balance changes is
+// treated as a swap (one asset out, another in, same tx) — same heuristic
+// used throughout this tool, since Helius doesn't return an explicit
+// "isSwap" flag on transaction history entries.
+function nonZeroChanges(tx){
+  return (tx.balanceChanges || []).filter(c => Math.abs(c.amount) > 0);
+}
+function isSwapTx(tx){
+  return !tx.error && nonZeroChanges(tx).length > 1;
+}
+function symbolFor(mint){
+  const trimmed = (mint||'').trim();
+  if(trimmed === SOL_MINT) return 'SOL';
+  return tokenMetaMap[trimmed]?.symbol || short(mint||'');
+}
+function describeChanges(changes){
+  return changes.map(c=>{
+    const amt = fmtNum(Math.abs(c.amount), Math.abs(c.amount)<1?6:2);
+    return `${c.amount>0?'+':'-'}${amt} ${symbolFor(c.mint)}`;
+  }).join('  ·  ');
+}
+
 function renderTxRow(tx){
   const link = `https://solscan.io/tx/${tx.signature}`;
   if(tx.error){
@@ -1161,15 +1239,9 @@ function renderTxRow(tx){
       </div>
     </div>`;
   }
-  const changes = (tx.balanceChanges || []).filter(c => Math.abs(c.amount) > 0);
+  const changes = nonZeroChanges(tx);
   const label = changes.length > 1 ? 'SWAP' : (changes.length === 1 ? (changes[0].amount > 0 ? 'RECEIVE' : 'SEND') : 'TX');
-  const desc = changes.length
-    ? changes.map(c=>{
-        const sym = (c.mint||'').trim() === SOL_MINT ? 'SOL' : short(c.mint);
-        const amt = fmtNum(Math.abs(c.amount), Math.abs(c.amount)<1?6:2);
-        return `${c.amount>0?'+':'-'}${amt} ${sym}`;
-      }).join('  ·  ')
-    : 'No balance change';
+  const desc = changes.length ? describeChanges(changes) : 'No balance change';
   return `<div class="tx-row">
     <div class="tx-desc"><span class="tx-type">${label}</span>${desc}</div>
     <div style="display:flex; align-items:center; gap:10px;">
@@ -1246,6 +1318,7 @@ $('lookupBtn').addEventListener('click', lookupWallet);
 $('walletInput').addEventListener('keydown', e=>{ if(e.key==='Enter') lookupWallet(); });
 $('senderCheckAddr').addEventListener('keydown', e=>{ if(e.key==='Enter') $('senderCheckBtn').click(); });
 $('senderCheckMint').addEventListener('keydown', e=>{ if(e.key==='Enter') $('senderCheckBtn').click(); });
+$('buyCheckMint').addEventListener('keydown', e=>{ if(e.key==='Enter') $('buyCheckBtn').click(); });
 
 function renderTrendChart(currentSolBalance, txs){
   const panel = $('trendPanel');
