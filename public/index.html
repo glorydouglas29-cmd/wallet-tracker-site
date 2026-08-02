@@ -1065,7 +1065,7 @@ $('buyCheckBtn').addEventListener('click', ()=>{
   }
 
   const hits = allTxs.filter(tx =>
-    isSwapTx(tx) && nonZeroChanges(tx).some(c => c.amount > 0 && matchesTokenQuery(c.mint, query))
+    isSwapTx(tx) && consolidateChanges(tx).some(c => c.amount > 0 && matchesTokenQuery(c.mint, query))
   );
 
   if(!hits.length){
@@ -1077,7 +1077,7 @@ $('buyCheckBtn').addEventListener('click', ()=>{
   }
 
   const rows = hits.slice(0,15).map(tx=>{
-    const changes = nonZeroChanges(tx);
+    const changes = consolidateChanges(tx);
     const date = tx.timestamp ? timeAgo(tx.timestamp) : '—';
     const link = tx.signature ? `<a class="tx-link" href="https://solscan.io/tx/${tx.signature}" target="_blank" rel="noopener">↗</a>` : '';
     return `<div class="sender-hit">
@@ -1170,7 +1170,7 @@ $('tokensRows').addEventListener('click', (e)=>{
   const resultEl = btn.closest('.detail-origin').querySelector('.detail-swap-result');
 
   const hits = allTxs.filter(tx =>
-    isSwapTx(tx) && nonZeroChanges(tx).some(c => (c.mint||'').trim() === mint.trim())
+    isSwapTx(tx) && consolidateChanges(tx).some(c => (c.mint||'').trim() === mint.trim())
   );
 
   if(!hits.length){
@@ -1179,7 +1179,7 @@ $('tokensRows').addEventListener('click', (e)=>{
   }
 
   const rows = hits.slice(0,15).map(tx=>{
-    const changes = nonZeroChanges(tx);
+    const changes = consolidateChanges(tx);
     const date = tx.timestamp ? timeAgo(tx.timestamp) : '—';
     const link = tx.signature ? `<a class="tx-link" href="https://solscan.io/tx/${tx.signature}" target="_blank" rel="noopener">↗</a>` : '';
     return `<div class="sender-hit">
@@ -1206,15 +1206,27 @@ $('loadMoreTokensBtn').addEventListener('click', async ()=>{
   }
 });
 
-// Shared swap detection: a transaction with 2+ non-zero balance changes is
-// treated as a swap (one asset out, another in, same tx) — same heuristic
-// used throughout this tool, since Helius doesn't return an explicit
-// "isSwap" flag on transaction history entries.
-function nonZeroChanges(tx){
-  return (tx.balanceChanges || []).filter(c => Math.abs(c.amount) > 0);
+// Shared swap detection + aggregation. Helius often splits a single swap's
+// fee/rent/referral cut into several tiny same-mint balance-change entries
+// (e.g. five separate "-0.002 SOL" lines within one transaction) rather than
+// one net figure. consolidateChanges() sums same-mint entries into a single
+// net amount per token, so a swap reads as "-1.79 SOL · +15,319,449 GEFI"
+// instead of six fragmented SOL lines. A transaction with 2+ distinct tokens
+// after consolidation is treated as a swap — same heuristic used throughout
+// this tool, since Helius doesn't return an explicit "isSwap" flag.
+function consolidateChanges(tx){
+  const raw = (tx.balanceChanges || []).filter(c => Math.abs(c.amount) > 0);
+  const byMint = new Map();
+  for(const c of raw){
+    const mint = (c.mint||'').trim();
+    byMint.set(mint, (byMint.get(mint) || 0) + c.amount);
+  }
+  return Array.from(byMint.entries())
+    .map(([mint, amount]) => ({ mint, amount }))
+    .filter(c => Math.abs(c.amount) > 1e-9); // drop entries that net to ~zero after consolidation
 }
 function isSwapTx(tx){
-  return !tx.error && nonZeroChanges(tx).length > 1;
+  return !tx.error && consolidateChanges(tx).length > 1;
 }
 function symbolFor(mint){
   const trimmed = (mint||'').trim();
@@ -1239,7 +1251,7 @@ function renderTxRow(tx){
       </div>
     </div>`;
   }
-  const changes = nonZeroChanges(tx);
+  const changes = consolidateChanges(tx);
   const label = changes.length > 1 ? 'SWAP' : (changes.length === 1 ? (changes[0].amount > 0 ? 'RECEIVE' : 'SEND') : 'TX');
   const desc = changes.length ? describeChanges(changes) : 'No balance change';
   return `<div class="tx-row">
