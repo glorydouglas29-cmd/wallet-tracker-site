@@ -139,7 +139,22 @@ async function handleHeliusProxy(request, env){
     }
 
     const res = await fetch(heliusUrl, options);
-    const data = await res.json();
+    const rawText = await res.text();
+    let data;
+    try{
+      data = JSON.parse(rawText);
+    }catch{
+      // Helius sometimes returns plain text instead of JSON — most commonly
+      // when a plan's usage limit is hit. Surface that clearly instead of a
+      // confusing "Unexpected token" parse error.
+      const looksLikeLimit = /usage|limit|quota|exceeded/i.test(rawText);
+      return json({
+        error: looksLikeLimit
+          ? "Helius usage limit reached for this plan. Check your Helius dashboard's Usage/Billing page — this usually resets monthly."
+          : 'Helius returned an unexpected non-JSON response.',
+        raw: rawText.slice(0, 200),
+      }, res.status || 502);
+    }
 
     if(res.ok){
       cache.set(cacheKey, { data, status: res.status, expiresAt: Date.now() + CACHE_TTL_MS });
